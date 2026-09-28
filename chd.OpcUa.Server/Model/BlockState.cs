@@ -16,6 +16,7 @@ namespace chd.OpcUa.Server.Model
         private readonly UnderlyingSystemBlock _block;
         private readonly NodeManager _nodeManager;
         private int _monitoringCount;
+        private int _eventCount;
 
         public BlockState(NodeManager nodeManager, NodeId nodeId, UnderlyingSystemBlock block) : base(null)
         {
@@ -75,11 +76,23 @@ namespace chd.OpcUa.Server.Model
 
         public void SubscribeEvents()
         {
-            _block.SubscribeEvents(OnEventTrigged);
+            if (_eventCount == 0)
+            {
+                _block.SubscribeEvents(OnEventTrigged);
+            }
+
+            _eventCount++;
         }
-        public void UnSubscribeEvents()
+
+        public bool UnSubscribeEvents()
         {
-            _block.UnSubscribeEvents();
+            _eventCount--;
+
+            if (_eventCount == 0)
+            {
+                _block.UnSubscribeEvents();
+            }
+            return _eventCount != 0;
         }
 
 

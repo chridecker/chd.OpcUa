@@ -14,8 +14,10 @@ namespace chd.OpcUa.Worker
 
             await client.AttachToEventsAsync("Server", stoppingToken);
 
+            await client.CallMethod("2:CHDTimer1#StartAsync", stoppingToken,10);
 
-            //await client.MonitorItem("1:CC1001?Input1", 5000, stoppingToken);
+
+            await client.MonitorItem("1:CHDTimer1?Time", 500, stoppingToken);
             //await client.MonitorItem("1:CC1001?Input2", 5000, stoppingToken);
             //await client.MonitorItem("2:State", 500, stoppingToken);
             //var val = await client.ReadAsync<uint>("2:State", stoppingToken);
@@ -40,23 +42,24 @@ namespace chd.OpcUa.Worker
         {
             try
             {
-                if (!e.Retain)
-                {
-                    logger?.LogInformation($"Event {e.ConditionName} -> {e.Message} {e.Comment} {e.StateText}");
-                    if (e.IsAlarm)
-                    {
-                        await client.AcknowledgeAsync(e.Handle, e.Id, "CHD ACK", cancellationToken);
-                    }
-                }
-                else
-                {
-                    logger?.LogWarning(
-                        $"Event {e.ConditionName} -> {e.Message} {e.Comment} {e.StateText} {e.IsDialog} {e.IsAlarm}");
-                    if (e.IsAlarm && string.IsNullOrWhiteSpace(e.Comment))
-                    {
-                        await client.AddCommentAsync(e.Handle, e.Id, "Test Comment", cancellationToken);
-                    }
-                }
+                logger?.LogInformation($"Event {e.ConditionName} -> {e.Message} {e.Comment} {e.StateText}");
+                //if (!e.Retain)
+                //{
+                //    logger?.LogInformation($"Event {e.ConditionName} -> {e.Message} {e.Comment} {e.StateText}");
+                //    if (e.IsAlarm)
+                //    {
+                //        await client.AcknowledgeAsync(e.Handle, e.Id, "CHD ACK", cancellationToken);
+                //    }
+                //}
+                //else
+                //{
+                //    logger?.LogWarning(
+                //        $"Event {e.ConditionName} -> {e.Message} {e.Comment} {e.StateText} {e.IsDialog} {e.IsAlarm}");
+                //    if (e.IsAlarm && string.IsNullOrWhiteSpace(e.Comment))
+                //    {
+                //        await client.AddCommentAsync(e.Handle, e.Id, "Test Comment", cancellationToken);
+                //    }
+                //}
             }
             catch (Exception ex)
             {

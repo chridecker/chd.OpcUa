@@ -18,24 +18,23 @@ namespace chd.OpcUa.Server.Extensions
     public static class DIExtensions
     {
         public static IServiceCollection AddOpcUaServer<TNamespaceManager, TSystemManager>(this IServiceCollection services,
-            Action<ServerOptions> serverConfig = null,
-            string configurationFile = "OpcUaServerConfig.xml")
+            Action<ServerOptions> serverConfig = null)
             where TNamespaceManager : class, INamespaceManager
             where TSystemManager : UnderlyingSystemManager
         {
-            var configFile = new FileInfo(configurationFile);
-            if (!configFile.Exists)
-            {
-                throw new FileNotFoundException("Opc UA Server Config konnte nicht gefunden werden!", configFile.FullName);
-            }
-
             if (serverConfig is not null)
             {
                 services.Configure<ServerOptions>(serverConfig);
             }
 
             var server = services.AddOpcUa()
-                 .AddServer(configFile.FullName)
+                 .AddServer(config =>
+                 {
+                     config.ApplicationName = "CHDTest";
+                     config.EndpointUrls.Add("opc.tcp://localhost:4840/CHD/Server");
+                     config.AutoAcceptUntrustedCertificates = true;
+                     config.IncludeUnsecurePolicyNone = true;
+                 })
                  .AddNodeManager<NodeManagerFactory>()
                  .ConfigureRoles(roles =>
                  {

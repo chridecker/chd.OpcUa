@@ -15,8 +15,28 @@ namespace chd.OpcUa.Client.Extensions
     {
         public static IServiceCollection AddOpcUaClient(this IServiceCollection services, IConfiguration configuration)
         {
-            services.AddOpcUa();
-            services.Configure<OpcUaClientOptions>(configuration.GetSection(nameof(OpcUaClientOptions)));
+            services.AddOpcUa()
+                .ConfigureApplication(c =>
+                {
+                    c.ApplicationUri = "urn:localhost:UA:CHDClient";
+                    c.AutoAcceptUntrustedCertificates = true;
+                    c.ApplicationName = "CHD Client";
+                    c.ConfigureSecurity = opt =>
+                    {
+                        opt.SetApplicationCertificates([ new CertificateIdentifier
+                            {
+                                StoreType = CertificateStoreType.Directory,
+                                StorePath = Path.Combine(GetPrivateStateRoot(), "own"),
+                                SubjectName = "CN=IntentViewerClient, O=OPC Foundation"
+                            }]);
+                    };
+                })
+                .AddClient(config =>
+                {
+                    config.AutoAcceptUntrustedCertificates = true;
+                    config.ApplicationName = "CHD Client";
+                });
+            services.Configure<OpcUaClientConnectionOptions>(configuration.GetSection(nameof(OpcUaClientConnectionOptions)));
             services.Configure<SubscriptionOptions>(configuration.GetSection(nameof(SubscriptionOptions)));
             services.AddTransient<ITelemetryContext>(sp =>
                 DefaultTelemetry.Create(c => c.SetMinimumLevel(LogLevel.Trace)));
@@ -25,5 +45,18 @@ namespace chd.OpcUa.Client.Extensions
 
             return services;
         }
+
+        private static string GetPrivateStateRoot()
+        {
+            string baseDirectory = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            if (string.IsNullOrEmpty(baseDirectory))
+            {
+                baseDirectory = AppContext.BaseDirectory;
+            }
+            string root = Path.Combine(baseDirectory, "OPC Foundation", "IntentViewerClient", "pki");
+            Directory.CreateDirectory(root);
+            return root;
+        }
+
     }
 }

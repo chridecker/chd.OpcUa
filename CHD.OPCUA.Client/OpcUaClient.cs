@@ -1,5 +1,5 @@
-﻿using chd.OpcUa.Client.Extensions;
-using chd.OpcUa.Base.Extensions;
+﻿using chd.OpcUa.Base.Extensions;
+using chd.OpcUa.Client.Extensions;
 using chd.OpcUa.Contracts;
 using chd.OpcUa.Contracts.Interfaces;
 using chd.OpcUa.Contracts.Options;
@@ -13,6 +13,7 @@ using Opc.Ua.Client.Subscriptions;
 using Opc.Ua.Client.Subscriptions.MonitoredItems;
 using Opc.Ua.Configuration;
 using Opc.Ua.Schema.Types;
+using Opc.Ua.Server.Hosting;
 using System.Diagnostics;
 using System.Net;
 using System.Security.Principal;
@@ -26,12 +27,13 @@ using SubscriptionOptions = Opc.Ua.Client.Subscriptions.SubscriptionOptions;
 namespace chd.OpcUa.Client
 {
     public class OpcUaClient(ILogger<OpcUaClient> logger,
+        OpcUaClientOptions c,
         ITelemetryContext telemetryContext,
         NotificationHandler subscriptionNotificationHandler,
-        IOptionsMonitor<Contracts.Options.OpcUaClientOptions> optionsMonitor,
+        IOptionsMonitor<Contracts.Options.OpcUaClientConnectionOptions> optionsMonitor,
         IOptionsMonitor<SubscriptionOptions> subscritptionsOptionsMonitor) : IOpcUAClient
     {
-        private Contracts.Options.OpcUaClientOptions _options => optionsMonitor.CurrentValue;
+        private Contracts.Options.OpcUaClientConnectionOptions ConnectionOptions => optionsMonitor.CurrentValue;
         private ApplicationInstance? _instance;
         private ApplicationConfiguration? _configuration => _instance.ApplicationConfiguration;
 
@@ -59,7 +61,7 @@ namespace chd.OpcUa.Client
 
         public async Task StartAsync(CancellationToken cancellationToken = default)
         {
-            var timeout = (int?)_options.Timeout?.TotalMilliseconds ?? 60000;
+            var timeout = (int?)ConnectionOptions.Timeout?.TotalMilliseconds ?? 60000;
             await InitializeApplicationInstance(cancellationToken);
 
             var identity = GetIdentity();
@@ -67,9 +69,9 @@ namespace chd.OpcUa.Client
             var endpoint = await GetEndpointAsync(identity, cancellationToken);
 
             await CreateSessionAsync(endpoint, timeout, identity, cancellationToken);
-            if (_options.StartNodes?.Any() ?? false)
+            if (ConnectionOptions.StartNodes?.Any() ?? false)
             {
-                foreach (var startNode in _options.StartNodes)
+                foreach (var startNode in ConnectionOptions.StartNodes)
                 {
                     await BrowseNodeAsync(NodeId.Parse(null, startNode), cancellationToken);
                 }
@@ -130,20 +132,17 @@ namespace chd.OpcUa.Client
             {
                 CreateEventsSubscription(cancellationToken);
 
-                var selecClauses = await _session.ConstructSelectClausesAsync(cancellationToken, n,
-                    ObjectTypeIds.DialogConditionType,
-                    ObjectTypeIds.ExclusiveLimitAlarmType,
-                    ObjectTypeIds.NonExclusiveLimitAlarmType);
+                var selectClauses = await _session.ConstructSelectClausesAsync(cancellationToken, ObjectTypeIds.RefreshStartEventType);
 
                 var options = new MonitoredItemOptions
                 {
                     StartNodeId = n,
                     AttributeId = Attributes.EventNotifier,
-                    MonitoringMode = MonitoringMode.Reporting,
                     SamplingInterval = TimeSpan.Zero,
+                    MonitoringMode = MonitoringMode.Reporting,
                     QueueSize = UInt32.MaxValue,
                     DiscardOldest = true,
-                    Filter = selecClauses.ConstructFilter(),
+                    Filter = selectClauses.ConstructFilter(),
                 };
 
                 if (_eventsSubscription.MonitoredItems.TryAdd(node, new Opc.Ua.OptionsMonitor<MonitoredItemOptions>(options),
@@ -267,7 +266,7 @@ namespace chd.OpcUa.Client
             if (_eventsSubscription is null && _session.TryGetSubscriptionManager(out var manager))
             {
                 subscriptionNotificationHandler.EventCallback = RaiseEventsAsync;
-                _eventsSubscription = manager.Add(subscriptionNotificationHandler, subscritptionsOptionsMonitor);
+                _eventsSubscription = manager.Add(subscriptionNotificationHandler,subscritptionsOptionsMonitor);
             }
 
             if (_channelConsumer is null)
@@ -360,14 +359,10 @@ namespace chd.OpcUa.Client
                 _instance = new ApplicationInstance(telemetryContext)
                 {
                     ApplicationType = ApplicationType.Client,
-                    ApplicationName = _options.Name,
+                    ApplicationName = ConnectionOptions.Name,
                 };
-                var configFile = new FileInfo("OpcUaClientConfig.xml");
-                if (!configFile.Exists)
-                {
-                    throw new FileNotFoundException("Opc UA Client konnte nicht gefunden werden!", configFile.FullName);
-                }
-                _ = await _instance.LoadApplicationConfigurationAsync(configFile.FullName, false, cancellationToken);
+
+                _instance.ApplicationConfiguration = c.Configuration;
 
                 if (await _instance.CheckApplicationInstanceCertificatesAsync(false, ct: cancellationToken))
                 {
@@ -379,11 +374,11 @@ namespace chd.OpcUa.Client
         private IUserIdentity? GetIdentity()
         {
             IUserIdentity identity = null;
-            if (!string.IsNullOrWhiteSpace(_options.Username))
+            if (!string.IsNullOrWhiteSpace(ConnectionOptions.Username))
             {
                 var pwBytes = new Span<byte>();
-                _ = Utf8.FromUtf16(_options.Password, pwBytes, out _, out _);
-                identity = new UserIdentity(_options.Username, pwBytes);
+                _ = Utf8.FromUtf16(ConnectionOptions.Password, pwBytes, out _, out _);
+                identity = new UserIdentity(ConnectionOptions.Username, pwBytes);
             }
 
             return identity;
@@ -396,7 +391,7 @@ namespace chd.OpcUa.Client
                 endpoint,
                 false,
                 true,
-                !string.IsNullOrWhiteSpace(_options.Name) ? _options.Name : nameof(OpcUaClient),
+                !string.IsNullOrWhiteSpace(ConnectionOptions.Name) ? ConnectionOptions.Name : nameof(OpcUaClient),
                 (uint)timeout,
                 identity ?? new UserIdentity(), new string[] { },
                 cancellationToken);
@@ -426,7 +421,7 @@ namespace chd.OpcUa.Client
         {
             var endpointConfiguration = EndpointConfiguration.Create(_configuration);
 
-            var discoveryClient = await DiscoveryClient.CreateAsync(_configuration, new Uri(this._options.EndpointUrl),
+            var discoveryClient = await DiscoveryClient.CreateAsync(_configuration, new Uri(this.ConnectionOptions.EndpointUrl),
                 endpointConfiguration, DiagnosticsMasks.All, cancellationToken);
 
             EndpointDescription? selectedEndpoint = null;
@@ -434,21 +429,21 @@ namespace chd.OpcUa.Client
             foreach (var ep in (await discoveryClient.GetEndpointsAsync(new string[] { }, cancellationToken)).ToList())
             {
                 if (identity is not null
-                    && _options.UseCertificate
+                    && ConnectionOptions.UseCertificate
                     && ep.SecurityMode is MessageSecurityMode.SignAndEncrypt)
                 {
                     selectedEndpoint = ep;
                     break;
                 }
                 if (identity is not null
-                    && !_options.UseCertificate
+                    && !ConnectionOptions.UseCertificate
                     && ep.SecurityMode is MessageSecurityMode.Sign)
                 {
                     selectedEndpoint = ep;
                     break;
                 }
                 if (identity is null
-                    && !_options.UseCertificate
+                    && !ConnectionOptions.UseCertificate
                     && ep.SecurityMode is MessageSecurityMode.None)
                 {
                     selectedEndpoint = ep;
@@ -458,7 +453,7 @@ namespace chd.OpcUa.Client
 
             if (selectedEndpoint is null)
             {
-                throw new Exception($"Konnte keinen validen Endpoint auf {_options.EndpointUrl} finden!");
+                throw new Exception($"Konnte keinen validen Endpoint auf {ConnectionOptions.EndpointUrl} finden!");
             }
 
             return new ConfiguredEndpoint(null, selectedEndpoint, endpointConfiguration);

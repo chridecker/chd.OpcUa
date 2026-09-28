@@ -96,8 +96,10 @@ namespace chd.OpcUa.ServerWorker
                 }
                 else
                 {
-                    blockState.UnSubscribeEvents();
-                    _eventBlocks.TryRemove(blockState.NodeId, out _);
+                    if (!blockState.UnSubscribeEvents())
+                    {
+                        _eventBlocks.TryRemove(blockState.NodeId, out _);
+                    }
                 }
             }
 

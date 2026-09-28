@@ -4,7 +4,7 @@ using System.Text;
 
 namespace chd.OpcUa.Contracts.Options
 {
-    public class OpcUaClientOptions
+    public class OpcUaClientConnectionOptions
     {
         public string Name { get; set; }
         public string EndpointUrl { get; set; }
