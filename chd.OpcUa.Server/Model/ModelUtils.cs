@@ -17,6 +17,7 @@ namespace chd.OpcUa.Server.Model
         public const int InputArgument = 3;
 
         public const int OutputArgument = 4;
+        public const int EventType = 5;
 
         public static NodeId ConstructIdForSegment(string identifier, ushort namespaceIndex)
         {
@@ -70,6 +71,56 @@ namespace chd.OpcUa.Server.Model
                 RootType = OutputArgument
             };
             return parsedNodeId.Construct();
+        }
+
+        public static NodeId ConstructIdForEventType<T>(ushort namespaceIndex)
+        where T : BaseEventState
+        {
+            var parsedNodeId = new ParsedNodeId
+            {
+                RootId = typeof(T).Name.Replace("State", "Type"),
+                NamespaceIndex = namespaceIndex,
+                RootType = EventType
+            };
+            return parsedNodeId.Construct();
+        }
+
+        public static BaseObjectTypeState CreateEventType<T>(
+            ushort namespaceIndex)
+            where T : CustomEventState
+        {
+            var eventType = new BaseObjectTypeState
+            {
+                NodeId = ConstructIdForEventType<T>(namespaceIndex),
+                BrowseName = new QualifiedName(typeof(T).Name.Replace("State", "Type"), namespaceIndex),
+                DisplayName = new LocalizedText(typeof(T).Name.Replace("State", "Type")),
+                IsAbstract = false,
+                SuperTypeId = ObjectTypeIds.BaseEventType
+            };
+
+            eventType.AddReference(
+                ReferenceTypeIds.HasSubtype,
+                true,
+                ObjectTypeIds.BaseEventType);
+
+
+            // InstanceDeclaration "Value"
+            var value = new EventValueState(eventType)
+            {
+                SymbolicName = "Value",
+                BrowseName = new QualifiedName("Value", namespaceIndex),
+                DisplayName = new LocalizedText("Value"),
+                TypeDefinitionId = VariableTypeIds.PropertyType,
+                DataType = DataTypeIds.BaseDataType,
+                ValueRank = ValueRanks.Scalar,
+                ModellingRuleId = ObjectIds.ModellingRule_Mandatory,
+                ReferenceTypeId = ReferenceTypeIds.HasProperty,
+            };
+            value.NodeId = ConstructIdForComponent(value, namespaceIndex);
+
+            eventType.AddChild(value);
+
+            return eventType;
         }
 
         public static NodeId ConstructIdForComponent(NodeState component, ushort namespaceIndex)

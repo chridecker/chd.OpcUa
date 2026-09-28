@@ -1,4 +1,5 @@
-﻿using chd.OpcUa.Server.Model;
+﻿using chd.OpcUa.Contracts.Interfaces;
+using chd.OpcUa.Server.Model;
 using chd.OpcUa.Server.UnderlyingSystem;
 using Opc.Ua;
 using Opc.Ua.Server;
@@ -7,7 +8,6 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Text;
-using chd.OpcUa.Contracts.Interfaces;
 
 namespace chd.OpcUa.ServerWorker
 {
@@ -36,6 +36,19 @@ namespace chd.OpcUa.ServerWorker
         {
             await base.CreateAddressSpaceAsync(externalReferences, cancellationToken).ConfigureAwait(false);
 
+
+            var customEventTypeId =
+                ModelUtils.ConstructIdForEventType<CustomEventState>(
+                    NamespaceIndex);
+
+            MasterNodeManager.CreateExternalReference(
+                externalReferences,
+                ObjectTypeIds.BaseEventType,
+                ReferenceTypeIds.HasSubtype,
+                false,
+                customEventTypeId);
+
+
             foreach (var segment in await _underlyingSystemManager.GetMainSegmentsAsync(cancellationToken))
             {
                 IList<IReference> references = null;
@@ -48,16 +61,22 @@ namespace chd.OpcUa.ServerWorker
                 var node = new NodeStateReference(ReferenceTypeIds.Organizes, false, segmentId);
                 references.Add(node);
             }
-
             var builder = CreateFluentBuilder(NamespaceIndex);
 
-            builder.ResolveNodes(IsSegmentOrBlockId, ResolveSegmentOrBlockAsync)
+            builder
+                .ResolveNodes(IsSegmentOrBlockId, ResolveSegmentOrBlockAsync)
                 .OnMonitoredItemCreated(OnBlockMonitoredItemCreated)
                 .OnMonitoredItemDeleted(OnBlockMonitoredItemDeletedAsync);
+
+            builder.ResolveNodes(IsMethodId, ResolveMethodAsync);
+
+            builder.ResolveNodes(IsEventTypeId, ResolveEventAsync);
 
             await RegisterAuthoredNodesAsync(builder, cancellationToken).ConfigureAwait(false);
             await CompleteConfigureAsync(externalReferences, cancellationToken).ConfigureAwait(false);
             await SealConfigurationAsync(builder, cancellationToken).ConfigureAwait(false);
+
+
         }
 
         protected override ValueTask OnSubscribeToEventsAsync(ServerSystemContext context, MonitoredNode2 monitoredNode, bool unsubscribe,
@@ -85,7 +104,14 @@ namespace chd.OpcUa.ServerWorker
             return base.OnSubscribeToEventsAsync(context, monitoredNode, unsubscribe, cancellationToken);
         }
 
-        private static bool IsSegmentOrBlockId(NodeId nodeId) => nodeId.IdType is IdType.String;
+        private static bool IsSegmentOrBlockId(NodeId nodeId) => nodeId.IdType is IdType.String && ParsedNodeId.Parse(nodeId).RootType <= ModelUtils.Block;
+        private static bool IsMethodId(NodeId nodeId) => nodeId.IdType is IdType.String && ParsedNodeId.Parse(nodeId).RootType > ModelUtils.Block && ParsedNodeId.Parse(nodeId).RootType <= ModelUtils.OutputArgument;
+
+        private static bool IsEventTypeId(NodeId nodeId) => nodeId.IdType switch
+        {
+            IdType.String => ParsedNodeId.Parse(nodeId).RootType > ModelUtils.OutputArgument && ParsedNodeId.Parse(nodeId).RootType <= ModelUtils.EventType,
+            _ => false
+        };
 
         private async ValueTask<NodeState> ResolveSegmentOrBlockAsync(ISystemContext context, NodeId nodeId, CancellationToken cancellationToken)
         {
@@ -154,7 +180,30 @@ namespace chd.OpcUa.ServerWorker
                     }
                 }
             }
-            else if (parsedNodeId.RootType == ModelUtils.Method)
+            else
+            {
+                return default;
+            }
+
+            if (string.IsNullOrEmpty(parsedNodeId.ComponentPath))
+            {
+                return root;
+            }
+            return root.FindChildBySymbolicName(context, parsedNodeId.ComponentPath);
+        }
+
+        private async ValueTask<NodeState> ResolveMethodAsync(ISystemContext context, NodeId nodeId, CancellationToken cancellationToken)
+        {
+            var parsedNodeId = ParsedNodeId.Parse(nodeId);
+
+            if (parsedNodeId is null)
+            {
+                return default;
+            }
+
+            NodeState root = null;
+
+            if (parsedNodeId.RootType == ModelUtils.Method)
             {
                 var method =
                     await _underlyingSystemManager.FindMethodByIdentifier(parsedNodeId.RootId, cancellationToken);
@@ -211,6 +260,36 @@ namespace chd.OpcUa.ServerWorker
             {
                 return root;
             }
+            return root.FindChildBySymbolicName(context, parsedNodeId.ComponentPath);
+        }
+
+        private async ValueTask<NodeState> ResolveEventAsync(ISystemContext context, NodeId nodeId,
+            CancellationToken cancellationToken)
+        {
+            var parsedNodeId = ParsedNodeId.Parse(nodeId);
+
+            if (parsedNodeId is null)
+            {
+                return default;
+            }
+
+            NodeState root = null;
+            if (parsedNodeId.RootType == ModelUtils.EventType &&
+                parsedNodeId.RootId == nameof(CustomEventState).Replace("State", "Type"))
+            {
+                root = ModelUtils.CreateEventType<CustomEventState>(NamespaceIndex);
+            }
+            else
+            {
+                root = default;
+            }
+
+
+            if (string.IsNullOrEmpty(parsedNodeId.ComponentPath))
+            {
+                return root;
+            }
+
             return root.FindChildBySymbolicName(context, parsedNodeId.ComponentPath);
         }
 

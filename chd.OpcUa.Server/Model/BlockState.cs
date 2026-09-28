@@ -94,11 +94,9 @@ namespace chd.OpcUa.Server.Model
 
         private ValueTask OnEventTrigged(UnderlyingSystemEvent? e, CancellationToken cancellationToken)
         {
-            var baseEvent = new EventState(this);
+            var baseEvent = new CustomEventState(this, _nodeManager.NamespaceIndex);
             baseEvent.Initialize(_nodeManager.SystemContext, this, EventSeverity.Medium, LocalizedText.From(e.Message));
-            var typeId = baseEvent.GetDefaultTypeDefinitionId(_nodeManager.SystemContext);
-
-            baseEvent.Value.Value = e.Message.ConvertToVariant();
+            baseEvent.Value.Value = e.Value.ConvertToVariant();
 
             return this.ReportEventAsync(_nodeManager.SystemContext, baseEvent, cancellationToken);
         }

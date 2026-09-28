@@ -9,6 +9,7 @@ namespace chd.OpcUa.Server.UnderlyingSystem
     public class UnderlyingSystemEvent : UnderlyingSystemBase
     {
         public string Message { get; set; }
+        public object Value { get; set; }
 
         public UnderlyingSystemEvent(string name, string description) : base(name)
         {
