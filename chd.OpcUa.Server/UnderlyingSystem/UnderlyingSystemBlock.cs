@@ -156,13 +156,14 @@ namespace chd.OpcUa.Server.UnderlyingSystem
             }
         }
 
-        public ValueTask TriggerEvent(string eventIdentifier, string message, CancellationToken cancellationToken)
+        public ValueTask TriggerEvent(string eventIdentifier, object value, CancellationToken cancellationToken)
         {
             var evt = _events.FirstOrDefault(x => x.Identifier == eventIdentifier);
             if (evt is not null
                 && OnEventTriggered is not null)
             {
-                evt.Message = message;
+                evt.Message = value is string message ? message : $"{eventIdentifier} fired";
+                evt.Value = value;
                 return OnEventTriggered(evt, cancellationToken);
             }
 

@@ -21,7 +21,6 @@ namespace chd.OpcUa.Server.Model
                 ValueRank = ValueRanks.Scalar,
                 ReferenceTypeId = ReferenceTypeIds.HasProperty,
             };
-            Value.NodeId = ModelUtils.ConstructIdForComponent(Value, namespaceIndex);
             this.AddChild(this.Value);
         }
         protected override NodeId GetDefaultTypeDefinitionId(

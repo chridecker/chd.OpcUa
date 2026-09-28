@@ -139,7 +139,7 @@ namespace chd.OpcUa.Server.ObjectSystem
             {
                 var attribute = eventInfo.GetCustomAttribute<ObjectSystemEventAttribute>();
                 var block = await this.FindBlockByIdentifier(instance.Name, CancellationToken.None);
-                await block.TriggerEvent(attribute?.DisplayName ?? eventInfo.Name, parameter[1].ToString(),
+                await block.TriggerEvent(attribute?.DisplayName ?? eventInfo.Name, parameter[1],
                     CancellationToken.None);
             }
         }
