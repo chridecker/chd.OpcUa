@@ -163,14 +163,14 @@ namespace chd.OpcUa.Server.Model
             condition.EnabledState.TransitionTime = PropertyState<DateTimeUtc>.With<VariantBuilder>(condition.EnabledState);
             condition.EnabledState.EffectiveDisplayName = PropertyState<LocalizedText>.With<VariantBuilder>(condition.EnabledState);
             condition.EnabledState.Create(_nodeManager.SystemContext, NodeId.Null, new QualifiedName(BrowseNames.EnabledState), LocalizedText.Null, false);
-            
+
 
             // same procedure add optional components to the ActiveState component.
             condition.ActiveState = new TwoStateVariableState(condition);
             condition.ActiveState.TransitionTime = PropertyState<DateTimeUtc>.With<VariantBuilder>(condition.ActiveState);
             condition.ActiveState.EffectiveDisplayName = PropertyState<LocalizedText>.With<VariantBuilder>(condition.ActiveState);
             condition.ActiveState.Create(_nodeManager.SystemContext, NodeId.Null, new QualifiedName(BrowseNames.ActiveState), LocalizedText.Null, false);
-           
+
 
             // same procedure add optional components to the ActiveState component.
             condition.ConfirmedState = new TwoStateVariableState(condition);
@@ -181,7 +181,7 @@ namespace chd.OpcUa.Server.Model
 
             condition.Comment = ConditionVariableState<LocalizedText>.With<VariantBuilder>(condition);
             condition.Comment.Create(_nodeManager.SystemContext, NodeId.Null, new QualifiedName(BrowseNames.Comment), LocalizedText.Null, false);
-            
+
             condition.AddComment = new AddCommentMethodState(condition);
 
             condition.SymbolicName = e.Name;
@@ -205,6 +205,10 @@ namespace chd.OpcUa.Server.Model
             condition.ReceiveTime.Value = condition.Time.Value;
 
             condition.Retain.Value = true;
+            
+            //condition.AddReAlarmTime(_nodeManager.SystemContext).AddReAlarmRepeatCount(_nodeManager.SystemContext);
+            //condition.ReAlarmTime.Value = TimeSpan.FromSeconds(2).TotalMilliseconds;
+            //condition.ReAlarmRepeatCount.Value = 0;
 
             // set up method handlers.
             condition.OnEnableDisable = OnEnableDisableAlarm;

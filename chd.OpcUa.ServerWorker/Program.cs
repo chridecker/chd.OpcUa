@@ -5,7 +5,7 @@ using chd.OpcUa.ServerWorker;
 var builder = Host.CreateApplicationBuilder(args);
 
 //builder.Services.AddOpcUaServer<NamespaceManager, chdSystemManager>();chdObjectSystemManager
-builder.Services.AddOpcUaServer<chdSystemManager>(config =>
+builder.Services.AddOpcUaServer<chdObjectSystemManager>(config =>
 {
     config.ApplicationName = "CHD-Test-UAServer";
     config.ApplicationUri = "urn:localhost:CHD";

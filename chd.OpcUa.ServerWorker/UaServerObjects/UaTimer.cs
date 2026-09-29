@@ -9,6 +9,10 @@ namespace chd.OpcUa.ServerWorker.UaServerObjects
 {
     public class UaTimer(string name) : BaseUaServerObject(name, "Ua Timer Desc")
     {
+        [ObjectSystemAlarm()]
+        public event EventHandler<string> TimerCanceled;
+
+
         [ObjectSystemEvent()]
         public event EventHandler TimerFinished;
 
@@ -32,7 +36,7 @@ namespace chd.OpcUa.ServerWorker.UaServerObjects
         [ObjectSystemMethod()]
         public bool StartAsync(int seconds, CancellationToken cancellationToken)
         {
-            if (State is not ETimerState.Running)
+            if (State is not ETimerState.Running or ETimerState.Canceled)
             {
                 this.TimerMode?.Invoke(this, "Timer starting");
                 this._cts = new();
@@ -47,8 +51,15 @@ namespace chd.OpcUa.ServerWorker.UaServerObjects
         public void StopAsync()
         {
             _cts.Cancel();
-            Time = 0;
             State = ETimerState.Canceled;
+            TimerCanceled?.Invoke(this, "Timer canceled");
+        }
+        
+        [ObjectSystemMethod()]
+        public void ResetAsync()
+        {
+            Time = 0;
+            State = ETimerState.Off;
         }
 
         public EventSeverity Sev(string eventName) => eventName switch

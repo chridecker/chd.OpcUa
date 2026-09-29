@@ -74,12 +74,20 @@ namespace chd.OpcUa.Server.ObjectSystem
                     );
             }
 
-            foreach (var eventInfo in realType.GetEvents().Where(x => x.IsDefined(typeof(ObjectSystemEventAttribute), inherit: true)))
+            foreach (var eventInfo in realType.GetEvents().Where(x => x.IsDefined(typeof(ObjectSystemEventAttribute), inherit: false)))
             {
                 var attribute = eventInfo.GetCustomAttribute<ObjectSystemEventAttribute>();
+                if (attribute.GetType().Equals(typeof(ObjectSystemAlarmAttribute))) { continue; }
                 block.AddEvent(attribute?.DisplayName ?? eventInfo.Name, attribute?.Description ?? string.Empty, eventInfo.EventHandlerType.IsGenericType ? eventInfo.EventHandlerType.GenericTypeArguments.FirstOrDefault() : typeof(void));
 
-                eventInfo.AddEventHandler(instance, CreateHandler(eventInfo));
+                eventInfo.AddEventHandler(instance, CreateEventHandler(eventInfo));
+            }
+
+            foreach (var eventInfo in realType.GetEvents().Where(x => x.IsDefined(typeof(ObjectSystemAlarmAttribute), inherit: true)))
+            {
+                var attribute = eventInfo.GetCustomAttribute<ObjectSystemAlarmAttribute>();
+                block.AddAlarm(attribute?.DisplayName ?? eventInfo.Name, attribute?.Description ?? string.Empty);
+                eventInfo.AddEventHandler(instance, CreateAlarmHandler(eventInfo));
             }
 
             foreach (var method in realType.GetMethods().Where(m => m.IsDefined(typeof(ObjectSystemMethodAttribute), inherit: true)))
@@ -96,7 +104,7 @@ namespace chd.OpcUa.Server.ObjectSystem
 
         }
 
-        private Delegate CreateHandler(EventInfo eventInfo)
+        private Delegate CreateEventHandler(EventInfo eventInfo)
         {
             var delegateType = eventInfo.EventHandlerType
                                ?? throw new InvalidOperationException();
@@ -134,6 +142,40 @@ namespace chd.OpcUa.Server.ObjectSystem
                 .Compile();
         }
 
+        private Delegate CreateAlarmHandler(EventInfo eventInfo)
+        {
+            var delegateType = eventInfo.EventHandlerType ?? throw new InvalidOperationException();
+
+            var invokeMethod = delegateType.GetMethod("Invoke") ?? throw new InvalidOperationException();
+
+            var parameters = invokeMethod
+                .GetParameters()
+                .Select(p => Expression.Parameter(p.ParameterType, p.Name))
+                .ToArray();
+
+            var arguments = Expression.NewArrayInit(
+                typeof(object),
+                parameters.Select(p =>
+                    Expression.Convert(p, typeof(object))));
+
+
+            var instanceExpression = Expression.Constant(this);
+
+            var eventInfoExpression = Expression.Constant(eventInfo);
+
+            var callbackMethod = this.GetType().GetMethod(nameof(OnAlarm));
+
+            var body = Expression.Call(
+                instanceExpression,
+                callbackMethod,
+                eventInfoExpression,
+                arguments);
+
+            return Expression
+                .Lambda(delegateType, body, parameters)
+                .Compile();
+        }
+
         public async Task OnEvent(EventInfo eventInfo, object[] parameter)
         {
             if (parameter.Length >= 2
@@ -159,6 +201,28 @@ namespace chd.OpcUa.Server.ObjectSystem
                     p = parameter[1];
                 }
                 await block.TriggerEvent(attribute?.DisplayName ?? eventInfo.Name, p, severity, CancellationToken.None);
+            }
+        }
+
+        public async Task OnAlarm(EventInfo eventInfo, object[] parameter)
+        {
+            if (parameter.Length >= 2
+                && parameter[0] is IUaServerObject instance)
+            {
+                var severity = EventSeverity.Medium;
+                var attribute = eventInfo.GetCustomAttribute<ObjectSystemAlarmAttribute>();
+                if (!string.IsNullOrEmpty(attribute.SeverityMethod)
+                    && instance.GetType().GetMethod(attribute.SeverityMethod) is not null
+                    && instance.GetType().GetMethod(attribute.SeverityMethod).ReturnType.Equals(typeof(EventSeverity))
+                    && instance.GetType().GetMethod(attribute.SeverityMethod).GetParameters().Length == 1
+                    && instance.GetType().GetMethod(attribute.SeverityMethod).GetParameters()[0].ParameterType.Equals(typeof(string)))
+                {
+                    var method = instance.GetType().GetMethod(attribute.SeverityMethod);
+                    severity = (EventSeverity)method.Invoke(instance, [eventInfo.Name]);
+                }
+
+                var block = await this.FindBlockByIdentifier(instance.Name, CancellationToken.None);
+                await block.TriggerAlarm(attribute?.DisplayName ?? eventInfo.Name, parameter[1].ToString(), severity, CancellationToken.None);
             }
         }
 
@@ -222,5 +286,6 @@ namespace chd.OpcUa.Server.ObjectSystem
             propInfo.SetValue(instance, value.GetValue());
             return ValueTask.CompletedTask;
         }
+
     }
 }
