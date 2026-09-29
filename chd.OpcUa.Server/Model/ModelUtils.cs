@@ -17,7 +17,10 @@ namespace chd.OpcUa.Server.Model
         public const int InputArgument = 3;
 
         public const int OutputArgument = 4;
+
         public const int EventType = 5;
+
+        public const int AlarmType = 6;
 
         public static NodeId ConstructIdForSegment(string identifier, ushort namespaceIndex)
         {
@@ -75,6 +78,18 @@ namespace chd.OpcUa.Server.Model
 
         public static NodeId ConstructIdForEventType<T>(ushort namespaceIndex)
         where T : BaseEventState
+        {
+            var parsedNodeId = new ParsedNodeId
+            {
+                RootId = typeof(T).Name.Replace("State", "Type"),
+                NamespaceIndex = namespaceIndex,
+                RootType = EventType
+            };
+            return parsedNodeId.Construct();
+        }
+        
+        public static NodeId ConstructIdForAlarmType<T>(ushort namespaceIndex)
+        where T : ConditionState
         {
             var parsedNodeId = new ParsedNodeId
             {

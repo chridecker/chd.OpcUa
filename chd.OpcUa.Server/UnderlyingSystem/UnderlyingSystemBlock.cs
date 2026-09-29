@@ -15,9 +15,11 @@ namespace chd.OpcUa.Server.UnderlyingSystem
         private readonly ConcurrentBag<UnderlyingSystemTag> _tags = [];
         private readonly ConcurrentBag<UnderlyingSystemMethod> _methods = [];
         private readonly ConcurrentBag<UnderlyingSystemEvent> _events = [];
+        private readonly ConcurrentBag<UnderlyingSystemAlarm> _alarms = [];
 
         private event EventHandler<UnderlyingSystemTag> OnTagsChanged;
         private Func<UnderlyingSystemEvent, CancellationToken, ValueTask> OnEventTriggered;
+        private Func<UnderlyingSystemAlarm, CancellationToken, ValueTask> OnAlarmTriggered;
 
         public string BlockType { get; set; }
         public DateTime Timestamp { get; set; }
@@ -29,10 +31,15 @@ namespace chd.OpcUa.Server.UnderlyingSystem
             Description = description;
         }
 
+        public void AddAlarm(string name, string description)
+        {
+            var alarm = new UnderlyingSystemAlarm(name, description);
+            _alarms.Add(alarm);
+        }
         public void AddEvent(string name, string description, Type type)
         {
             var evt = new UnderlyingSystemEvent(name, description, type);
-           
+
             _events.Add(evt);
         }
 
@@ -81,6 +88,8 @@ namespace chd.OpcUa.Server.UnderlyingSystem
         public IList<UnderlyingSystemMethod> GetMethods() => _methods.Select(s => s.CreateSnapshot()).ToList();
 
         public IList<UnderlyingSystemEvent> GetEvents() => _events.Select(s => s.CreateSnapshot()).ToList();
+
+        public IList<UnderlyingSystemAlarm> GetAlarms() => _alarms.Where(x => x.Enabled).ToList();
 
         public async ValueTask<StatusCode> WriteTagValueAsync(string tagName, Variant value, CancellationToken cancellationToken)
         {
@@ -148,6 +157,16 @@ namespace chd.OpcUa.Server.UnderlyingSystem
             OnEventTriggered = null;
         }
 
+        public void SubscribeAlarms(Func<UnderlyingSystemAlarm, CancellationToken, ValueTask> callback)
+        {
+            OnAlarmTriggered = callback;
+        }
+
+        public void UnSubscribeAlarms()
+        {
+            OnAlarmTriggered = null;
+        }
+
         public void TagChanged(string tagName)
         {
             var tag = _tags.FirstOrDefault(x => x.Name == tagName);
@@ -172,6 +191,66 @@ namespace chd.OpcUa.Server.UnderlyingSystem
 
             return ValueTask.CompletedTask;
         }
+        public ValueTask TriggerAlarm(string alarmsIdentifier, string message, EventSeverity severity, CancellationToken cancellationToken)
+        {
+            var alarm = _alarms.FirstOrDefault(x => x.Identifier == alarmsIdentifier);
+            if (alarm is not null
+                && OnAlarmTriggered is not null)
+            {
+                alarm.Message = message;
+                alarm.Time = DateTimeUtc.Now;
+                alarm.Severity = severity;
+                alarm.Enabled = true;
+                return OnAlarmTriggered(alarm, cancellationToken);
+            }
+
+            return ValueTask.CompletedTask;
+        }
+
+        public void CommentAlarm(string alarmIdentifier, string comment, string userName)
+        {
+            var alarm = _alarms.FirstOrDefault(x => x.Identifier == alarmIdentifier);
+            if (alarm is not null)
+            {
+                alarm.Comment = comment;
+                ReportAlarmChange(alarm);
+            }
+        }
+
+        public void AcknowledgeAlarm(string alarmIdentifier, string comment, string userName)
+        {
+            var alarm = _alarms.FirstOrDefault(x => x.Identifier == alarmIdentifier);
+            if (alarm is not null)
+            {
+                alarm.Comment = comment;
+                alarm.Acknowledged = true;
+                ReportAlarmChange(alarm);
+            }
+        }
+
+        public void ConfirmAlarm(string alarmIdentifier, string comment, string userName)
+        {
+            var alarm = _alarms.FirstOrDefault(x => x.Identifier == alarmIdentifier);
+            if (alarm is not null)
+            {
+                alarm.Comment = comment;
+                alarm.Confirmed = true;
+                ReportAlarmChange(alarm);
+            }
+        }
+
+        public void EnableDiableAlarm(string alarmIdentifier, bool enabled)
+        {
+            var alarm = _alarms.FirstOrDefault(x => x.Identifier == alarmIdentifier);
+            if (alarm is not null)
+            {
+                alarm.Enabled = enabled;
+                ReportAlarmChange(alarm);
+            }
+        }
+
+        private void ReportAlarmChange(UnderlyingSystemAlarm alarm, CancellationToken cancellationToken = default)
+            => OnAlarmTriggered(alarm, cancellationToken);
 
         public event UnderlyingSystemMethodExcutionHandler MethodExecution;
 

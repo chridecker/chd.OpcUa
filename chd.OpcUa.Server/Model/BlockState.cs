@@ -1,4 +1,6 @@
 ﻿using chd.OpcUa.Base.Extensions;
+using chd.OpcUa.Base.States;
+using chd.OpcUa.Base.System.Attributes;
 using chd.OpcUa.Contracts;
 using chd.OpcUa.Server.UnderlyingSystem;
 using chd.OpcUa.ServerWorker;
@@ -9,8 +11,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Reflection;
 using System.Text;
-using chd.OpcUa.Base.States;
-using chd.OpcUa.Base.System.Attributes;
+using System.Xml.Linq;
 
 namespace chd.OpcUa.Server.Model
 {
@@ -20,6 +21,8 @@ namespace chd.OpcUa.Server.Model
         private readonly NodeManager _nodeManager;
         private int _monitoringCount;
         private int _eventCount;
+
+        private Dictionary<string, ConditionState> _alarmStates = [];
 
         public BlockState(NodeManager nodeManager, NodeId nodeId, UnderlyingSystemBlock block) : base(null)
         {
@@ -34,7 +37,7 @@ namespace chd.OpcUa.Server.Model
             this.Description = new LocalizedText(block.Description);
             this.WriteMask = 0;
             this.UserWriteMask = 0;
-            this.EventNotifier = block.GetEvents().Any() ? EventNotifiers.SubscribeToEvents : EventNotifiers.None;
+            this.EventNotifier = block.GetEvents().Any() || block.GetAlarms().Any() ? EventNotifiers.SubscribeToEvents : EventNotifiers.None;
 
             foreach (var tag in block.GetTags())
             {
@@ -82,8 +85,8 @@ namespace chd.OpcUa.Server.Model
             if (_eventCount == 0)
             {
                 _block.SubscribeEvents(OnEventTrigged);
+                _block.SubscribeAlarms(OnAlarmTrigged);
             }
-
             _eventCount++;
         }
 
@@ -94,6 +97,7 @@ namespace chd.OpcUa.Server.Model
             if (_eventCount == 0)
             {
                 _block.UnSubscribeEvents();
+                _block.UnSubscribeAlarms();
             }
             return _eventCount != 0;
         }
@@ -104,6 +108,10 @@ namespace chd.OpcUa.Server.Model
             foreach (var evt in this._block.GetEvents())
             {
                 this.OnEventTrigged(evt, CancellationToken.None).AsTask().Wait();
+            }
+            foreach (var alarm in this._block.GetAlarms())
+            {
+                this.OnAlarmTrigged(alarm, CancellationToken.None).AsTask().Wait();
             }
             base.ConditionRefresh(context, events, includeChildren);
         }
@@ -116,6 +124,22 @@ namespace chd.OpcUa.Server.Model
             return this.ReportEventAsync(_nodeManager.SystemContext, baseEvent, cancellationToken);
         }
 
+        private ValueTask OnAlarmTrigged(UnderlyingSystemAlarm? e, CancellationToken cancellationToken)
+        {
+            if (!e.Id.HasValue)
+            {
+                e.Id = Guid.NewGuid();
+            }
+            var condition = CreateCondition(e);
+            if (condition is null) { return ValueTask.CompletedTask; }
+            condition.ReceiveTime.Value = e.Time;
+
+
+
+            return this.ReportEventAsync(_nodeManager.SystemContext, condition, cancellationToken);
+        }
+
+
 
         private BaseEventState CreateEvent(UnderlyingSystemEvent e)
             => e.Type switch
@@ -126,6 +150,74 @@ namespace chd.OpcUa.Server.Model
             };
 
 
+        private AlarmConditionState CreateCondition(UnderlyingSystemAlarm e)
+        {
+            var condition = new AlarmConditionState(this);
+            condition.Initialize(_nodeManager.SystemContext, this, e.Severity, LocalizedText.From(e.Message));
+
+
+
+            condition.Acknowledge = new AddCommentMethodState(condition);
+
+            condition.EnabledState = new TwoStateVariableState(condition);
+            condition.EnabledState.TransitionTime = PropertyState<DateTimeUtc>.With<VariantBuilder>(condition.EnabledState);
+            condition.EnabledState.EffectiveDisplayName = PropertyState<LocalizedText>.With<VariantBuilder>(condition.EnabledState);
+            condition.EnabledState.Create(_nodeManager.SystemContext, NodeId.Null, new QualifiedName(BrowseNames.EnabledState), LocalizedText.Null, false);
+            
+
+            // same procedure add optional components to the ActiveState component.
+            condition.ActiveState = new TwoStateVariableState(condition);
+            condition.ActiveState.TransitionTime = PropertyState<DateTimeUtc>.With<VariantBuilder>(condition.ActiveState);
+            condition.ActiveState.EffectiveDisplayName = PropertyState<LocalizedText>.With<VariantBuilder>(condition.ActiveState);
+            condition.ActiveState.Create(_nodeManager.SystemContext, NodeId.Null, new QualifiedName(BrowseNames.ActiveState), LocalizedText.Null, false);
+           
+
+            // same procedure add optional components to the ActiveState component.
+            condition.ConfirmedState = new TwoStateVariableState(condition);
+            condition.ConfirmedState.TransitionTime = PropertyState<DateTimeUtc>.With<VariantBuilder>(condition.ConfirmedState);
+            condition.ConfirmedState.EffectiveDisplayName = PropertyState<LocalizedText>.With<VariantBuilder>(condition.ConfirmedState);
+            condition.ConfirmedState.Create(_nodeManager.SystemContext, NodeId.Null, new QualifiedName(BrowseNames.ConfirmedState), LocalizedText.Null, false);
+            condition.Confirm = new AddCommentMethodState(condition);
+
+            condition.Comment = ConditionVariableState<LocalizedText>.With<VariantBuilder>(condition);
+            condition.Comment.Create(_nodeManager.SystemContext, NodeId.Null, new QualifiedName(BrowseNames.Comment), LocalizedText.Null, false);
+            
+            condition.AddComment = new AddCommentMethodState(condition);
+
+            condition.SymbolicName = e.Name;
+            condition.SupportsFilteredRetain = PropertyState<bool>.With<VariantBuilder>(condition, true);
+
+            condition.Create(_nodeManager.SystemContext, NodeId.Null, new QualifiedName(e.Name, _nodeManager.NamespaceIndex), LocalizedText.From(e.Name), true);
+
+            condition.EnabledState.Id.Value = e.Enabled;
+            condition.EnabledState.Value = LocalizedText.From("Enabled");
+            condition.ActiveState.Id.Value = e.Active;
+            condition.AckedState.Id.Value = e.Acknowledged;
+            condition.ConfirmedState.Id.Value = e.Confirmed;
+
+            condition.Comment.Value = LocalizedText.From(e.Comment);
+
+            condition.EventId.Value = e.Id.Value.ToByteArray().ToByteString();
+            condition.EventType.Value = condition.TypeDefinitionId;
+            condition.ConditionName = PropertyState<string>.With<VariantBuilder>(condition);
+            condition.ConditionName.Value = condition.SymbolicName;
+            condition.Time.Value = DateTime.UtcNow;
+            condition.ReceiveTime.Value = condition.Time.Value;
+
+            condition.Retain.Value = true;
+
+            // set up method handlers.
+            condition.OnEnableDisable = OnEnableDisableAlarm;
+            condition.OnAcknowledge = OnAcknowledge;
+            condition.OnAddComment = OnAddComment;
+            condition.OnConfirm = OnConfirm;
+
+            this._alarmStates[condition.EventId.Value.ToHexString()] = condition;
+
+            this.AddChild(condition);
+
+            return condition;
+        }
         private BaseEventState CreateBaseEvent(UnderlyingSystemEvent e)
         {
             var evt = new BaseEventState(null);
@@ -168,6 +260,67 @@ namespace chd.OpcUa.Server.Model
             return evt;
         }
 
+        private ServiceResult OnEnableDisableAlarm(
+            ISystemContext context,
+            ConditionState condition,
+            bool enabling)
+        {
+            _block.EnableDiableAlarm(condition.SymbolicName, enabling);
+            return ServiceResult.Good;
+        }
+
+        /// <summary>
+        /// Called when the alarm has a comment added.
+        /// </summary>
+        private ServiceResult OnAddComment(ISystemContext context, ConditionState condition, ByteString eventId, LocalizedText comment)
+        {
+            if (!_alarmStates.TryGetValue(eventId.ToHexString(), out var alarm))
+            {
+                return StatusCodes.BadEventIdUnknown;
+            }
+
+            _block.CommentAlarm(alarm.SymbolicName, comment.Text, GetUserName(context));
+
+            return ServiceResult.Good;
+        }
+
+        private ServiceResult OnAcknowledge(
+            ISystemContext context,
+            ConditionState condition,
+            ByteString eventId,
+            LocalizedText comment)
+        {
+            if (!_alarmStates.TryGetValue(eventId.ToHexString(), out var alarm))
+            {
+                return StatusCodes.BadEventIdUnknown;
+            }
+
+            _block.AcknowledgeAlarm(alarm.SymbolicName, comment.Text, GetUserName(context));
+
+            return ServiceResult.Good;
+        }
+
+        /// <summary>
+        /// Called when the alarm is confirmed.
+        /// </summary>
+        private ServiceResult OnConfirm(
+            ISystemContext context,
+            ConditionState condition,
+            ByteString eventId,
+            LocalizedText comment)
+        {
+            if (!_alarmStates.TryGetValue(eventId.ToHexString(), out var alarm))
+            {
+                return StatusCodes.BadEventIdUnknown;
+            }
+
+            _block.ConfirmAlarm(alarm.SymbolicName, comment.Text, GetUserName(context));
+
+            return ServiceResult.Good;
+        }
+
+
+
         private async ValueTask<AttributeSimpleReadResult> OnReadTagValueAsync(ISystemContext context, NodeState node,
             CancellationToken cancellationToken)
         {
@@ -181,6 +334,7 @@ namespace chd.OpcUa.Server.Model
 
 
         }
+
         private async ValueTask<AttributeWriteResult> OnWriteTagValueAsync(
             ISystemContext context,
             NodeState node,
@@ -236,6 +390,10 @@ namespace chd.OpcUa.Server.Model
             }
         }
 
+        private string GetUserName(ISystemContext context)
+        {
+            return (context as ISessionSystemContext)?.UserIdentity?.DisplayName;
+        }
 
         private BaseVariableState CreateVariable(ISystemContext context, UnderlyingSystemTag tag)
         {

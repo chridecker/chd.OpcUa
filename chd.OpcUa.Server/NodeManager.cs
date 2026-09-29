@@ -38,15 +38,15 @@ namespace chd.OpcUa.ServerWorker
             await base.CreateAddressSpaceAsync(externalReferences, cancellationToken).ConfigureAwait(false);
 
 
-            var simpleEventTypeId =ModelUtils.ConstructIdForEventType<SimpleValueCustomEventState>(NamespaceIndex);
+            var simpleEventTypeId = ModelUtils.ConstructIdForEventType<SimpleValueCustomEventState>(NamespaceIndex);
 
             MasterNodeManager.CreateExternalReference(externalReferences, ObjectTypeIds.BaseEventType,
                 ReferenceTypeIds.HasSubtype,
                 false,
                 simpleEventTypeId);
-           
-            var objectEventTypeId = ModelUtils.ConstructIdForEventType<ObjectValueCustomEventState>( NamespaceIndex);
-            var complexEventTypeId = ModelUtils.ConstructIdForEventType<ComplexValueCustomEventState>( NamespaceIndex);
+
+            var objectEventTypeId = ModelUtils.ConstructIdForEventType<ObjectValueCustomEventState>(NamespaceIndex);
+            var complexEventTypeId = ModelUtils.ConstructIdForEventType<ComplexValueCustomEventState>(NamespaceIndex);
 
             MasterNodeManager.CreateExternalReference(
                 externalReferences,
@@ -92,15 +92,10 @@ namespace chd.OpcUa.ServerWorker
 
         }
 
-        protected override ValueTask OnSubscribeToEventsAsync(ServerSystemContext context, MonitoredNode2 monitoredNode, bool unsubscribe,
-            CancellationToken cancellationToken = new CancellationToken())
+        protected override ValueTask<ServiceResult> SubscribeToEventsAsync(ServerSystemContext context, NodeState source, IEventMonitoredItem monitoredItem,
+            bool unsubscribe, CancellationToken cancellationToken = new CancellationToken())
         {
-            if (monitoredNode is null)
-            {
-                return ValueTask.CompletedTask;
-            }
-
-            if (monitoredNode.Node is BlockState blockState)
+            if (source is BlockState blockState)
             {
                 if (!unsubscribe)
                 {
@@ -115,8 +110,7 @@ namespace chd.OpcUa.ServerWorker
                     }
                 }
             }
-
-            return base.OnSubscribeToEventsAsync(context, monitoredNode, unsubscribe, cancellationToken);
+            return base.SubscribeToEventsAsync(context, source, monitoredItem, unsubscribe, cancellationToken);
         }
 
         private static bool IsSegmentOrBlockId(NodeId nodeId) => nodeId.IdType is IdType.String && ParsedNodeId.Parse(nodeId).RootType <= ModelUtils.Block;
@@ -180,6 +174,10 @@ namespace chd.OpcUa.ServerWorker
                 {
                     root = node;
                 }
+                else if (_eventBlocks.TryGetValue(rootId, out var eventNode))
+                {
+                    root = eventNode;
+                }
                 else
                 {
                     root = new BlockState(this, rootId, block);
@@ -204,7 +202,8 @@ namespace chd.OpcUa.ServerWorker
             {
                 return root;
             }
-            return root.FindChildBySymbolicName(context, parsedNodeId.ComponentPath);
+            var child =  root.FindChildBySymbolicName(context, parsedNodeId.ComponentPath);
+            return child;
         }
 
         private async ValueTask<NodeState> ResolveMethodAsync(ISystemContext context, NodeId nodeId, CancellationToken cancellationToken)

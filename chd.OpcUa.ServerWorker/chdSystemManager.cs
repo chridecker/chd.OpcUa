@@ -115,6 +115,7 @@ namespace chd.OpcUa.ServerWorker
                         //block.CreateTag<ESystemState>("Status", "", false, Enum.GetNames<ESystemState>());
 
                         block.AddEvent("Test", "Test", typeof(string));
+                        block.AddAlarm("TestAlarm", "Test");
 
                         block.AddMethod(nameof(StartCustomController), "", true, (method) =>
                         {
@@ -138,6 +139,7 @@ namespace chd.OpcUa.ServerWorker
             await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken);
 
             await b.TriggerEvent("Test", "Did it", EventSeverity.Medium, cancellationToken);
+            await b.TriggerAlarm("TestAlarm", "Did it", EventSeverity.Medium, cancellationToken);
 
             return new object[] { finalState, initalState };
         }
