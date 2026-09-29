@@ -10,6 +10,7 @@ using System.ComponentModel;
 using System.Linq.Expressions;
 using System.Reflection;
 using System.Text;
+using BitFaster.Caching;
 using chd.OpcUa.Base.System.Attributes;
 
 namespace chd.OpcUa.Server.ObjectSystem
@@ -76,7 +77,7 @@ namespace chd.OpcUa.Server.ObjectSystem
             foreach (var eventInfo in realType.GetEvents().Where(x => x.IsDefined(typeof(ObjectSystemEventAttribute), inherit: true)))
             {
                 var attribute = eventInfo.GetCustomAttribute<ObjectSystemEventAttribute>();
-                block.AddEvent(attribute?.DisplayName ?? eventInfo.Name, attribute?.Description ?? string.Empty, eventInfo.EventHandlerType.IsGenericType ? eventInfo.EventHandlerType.GenericTypeArguments.FirstOrDefault()  : typeof(void));
+                block.AddEvent(attribute?.DisplayName ?? eventInfo.Name, attribute?.Description ?? string.Empty, eventInfo.EventHandlerType.IsGenericType ? eventInfo.EventHandlerType.GenericTypeArguments.FirstOrDefault() : typeof(void));
 
                 eventInfo.AddEventHandler(instance, CreateHandler(eventInfo));
             }
@@ -138,10 +139,26 @@ namespace chd.OpcUa.Server.ObjectSystem
             if (parameter.Length >= 2
                 && parameter[0] is IUaServerObject instance)
             {
+                var severity = EventSeverity.Medium;
                 var attribute = eventInfo.GetCustomAttribute<ObjectSystemEventAttribute>();
+                if (!string.IsNullOrEmpty(attribute.SeverityMethod)
+                    && instance.GetType().GetMethod(attribute.SeverityMethod) is not null
+                    && instance.GetType().GetMethod(attribute.SeverityMethod).ReturnType.Equals(typeof(EventSeverity))
+                    && instance.GetType().GetMethod(attribute.SeverityMethod).GetParameters().Length == 1
+                    && instance.GetType().GetMethod(attribute.SeverityMethod).GetParameters()[0].ParameterType.Equals(typeof(string)))
+                {
+                    var method = instance.GetType().GetMethod(attribute.SeverityMethod);
+                    severity = (EventSeverity)method.Invoke(instance, [eventInfo.Name]);
+                }
+
+
                 var block = await this.FindBlockByIdentifier(instance.Name, CancellationToken.None);
-                await block.TriggerEvent(attribute?.DisplayName ?? eventInfo.Name, parameter[1],
-                    CancellationToken.None);
+                object p = null;
+                if (!(parameter[1] is EventArgs e && e != EventArgs.Empty))
+                {
+                    p = parameter[1];
+                }
+                await block.TriggerEvent(attribute?.DisplayName ?? eventInfo.Name, p, severity, CancellationToken.None);
             }
         }
 

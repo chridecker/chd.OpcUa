@@ -41,6 +41,7 @@ namespace chd.OpcUa.Client
         private List<NodeDto> _methods = [];
 
         private Dictionary<uint, EventFilter> _filtersByHandle = [];
+        private Dictionary<NodeId, Type> _eventType = [];
         private Dictionary<uint, ConditionState> _conditionStates = [];
 
         private ISession _session;
@@ -130,16 +131,12 @@ namespace chd.OpcUa.Client
                 return Task.FromResult(false);
             });
 
-        public Task<bool> AttachToEventsAsync(string node, CancellationToken cancellationToken = default)
+        public Task<bool> AttachToEventsAsync(string node, Dictionary<(string, Type), List<string>> customSelects, CancellationToken cancellationToken = default)
             => ExecuteForNode<bool>(node, async n =>
             {
                 CreateEventsSubscription(cancellationToken);
-
-                var customEventTypeId = new NodeId("ns=2;s=5:CustomEventType");
-
                 var filter = new EventFilter();
 
-                // Standardfelder von BaseEventType
                 filter.AddSelectClause(ObjectTypeIds.BaseEventType, new QualifiedName(BrowseNames.EventId));
                 filter.AddSelectClause(ObjectTypeIds.BaseEventType, new QualifiedName(BrowseNames.EventType));
                 filter.AddSelectClause(ObjectTypeIds.BaseEventType, new QualifiedName(BrowseNames.SourceNode));
@@ -148,9 +145,16 @@ namespace chd.OpcUa.Client
                 filter.AddSelectClause(ObjectTypeIds.BaseEventType, new QualifiedName(BrowseNames.Message));
                 filter.AddSelectClause(ObjectTypeIds.BaseEventType, new QualifiedName(BrowseNames.Severity));
 
-                // Custom-Feld "Value" vom CustomEventType via BrowsePath
-                filter.AddSelectClause(customEventTypeId, new QualifiedName(nameof(CustomEventState<>.Value), 2));
+                foreach (var customSelect in customSelects)
+                {
+                    var node = new NodeId(customSelect.Key.Item1);
+                    foreach (var field in customSelect.Value)
+                    {
+                        filter.AddSelectClause(node, new QualifiedName(field, node.NamespaceIndex));
+                    }
 
+                    _eventType[node] = customSelect.Key.Item2;
+                }
 
                 var element1 = filter.WhereClause.Push(FilterOperator.OfType, Opc.Ua.ObjectTypeIds.AlarmConditionType);
                 filter.WhereClause.Push(FilterOperator.Not, Variant.From(new ExtensionObject(element1)));
@@ -298,7 +302,7 @@ namespace chd.OpcUa.Client
                         await foreach (var notification in _eventChannel.Reader.ReadAllAsync(cancellationToken)
                                            .ConfigureAwait(false))
                         {
-                            var args = await _session.ProcessEventNotificationAsync(_filtersByHandle, notification,
+                            var args = await _session.ProcessEventNotificationAsync(_filtersByHandle, _eventType, notification,
                                 cancellationToken);
                             if (args is not null
                                 && EventNotification is not null)

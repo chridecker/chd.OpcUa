@@ -137,7 +137,7 @@ namespace chd.OpcUa.ServerWorker
             _ = await b.WriteTagValueAsync("Input2", (int)initalState + (int)finalState, cancellationToken);
             await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken);
 
-            await b.TriggerEvent("Test", "Did it", cancellationToken);
+            await b.TriggerEvent("Test", "Did it", EventSeverity.Medium, cancellationToken);
 
             return new object[] { finalState, initalState };
         }

@@ -31,10 +31,8 @@ namespace chd.OpcUa.Server.UnderlyingSystem
 
         public void AddEvent(string name, string description, Type type)
         {
-            var evt = new UnderlyingSystemEvent(name, description)
-            {
-                Type = type
-            };
+            var evt = new UnderlyingSystemEvent(name, description, type);
+           
             _events.Add(evt);
         }
 
@@ -159,7 +157,7 @@ namespace chd.OpcUa.Server.UnderlyingSystem
             }
         }
 
-        public ValueTask TriggerEvent(string eventIdentifier, object value, CancellationToken cancellationToken)
+        public ValueTask TriggerEvent(string eventIdentifier, object value, EventSeverity severity, CancellationToken cancellationToken)
         {
             var evt = _events.FirstOrDefault(x => x.Identifier == eventIdentifier);
             if (evt is not null
@@ -167,6 +165,8 @@ namespace chd.OpcUa.Server.UnderlyingSystem
             {
                 evt.Message = value is string message ? message : $"{eventIdentifier} fired";
                 evt.Value = value;
+                evt.Time = DateTimeUtc.Now;
+                evt.Severity = severity;
                 return OnEventTriggered(evt, cancellationToken);
             }
 

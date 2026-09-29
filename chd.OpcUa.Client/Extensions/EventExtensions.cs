@@ -20,7 +20,7 @@ namespace chd.OpcUa.Client.Extensions
                 EventFields = notification.Fields,
             };
         }
-        public static NodeId FindEventType(this EventFilter filter, EventFieldList notification)
+        private static NodeId FindEventType(this EventFilter filter, EventFieldList notification)
         {
             if (filter != null)
             {
@@ -37,10 +37,11 @@ namespace chd.OpcUa.Client.Extensions
 
             return NodeId.Null;
         }
-        public static async Task<BaseEventState> ConstructEventAsync(this ISession session,
+        private static async Task<BaseEventState> ConstructEventAsync(this ISession session,
             EventFilter filter,
             EventFieldList notification,
             Dictionary<NodeId, Type> knownEventTypes,
+            Dictionary<NodeId, Type> registeredTypes,
             CancellationToken ct = default)
         {
             var eventTypeId = FindEventType(filter, notification);
@@ -52,6 +53,10 @@ namespace chd.OpcUa.Client.Extensions
             Type knownType = null;
             NodeId knownTypeId = NodeId.Null;
 
+            if (registeredTypes.TryGetValue(eventTypeId, out knownType))
+            {
+                knownTypeId = eventTypeId;
+            }
             if (knownType is null
                 && knownEventTypes.TryGetValue(eventTypeId, out knownType))
             {
@@ -223,7 +228,7 @@ namespace chd.OpcUa.Client.Extensions
             }
         }
 
-        public static async Task<List<ReferenceDescription>> BrowseSuperTypesAsync(this ISession session, NodeId typeId, bool throwOnError, CancellationToken ct = default)
+        private static async Task<List<ReferenceDescription>> BrowseSuperTypesAsync(this ISession session, NodeId typeId, bool throwOnError, CancellationToken ct = default)
         {
             List<ReferenceDescription> supertypes = new List<ReferenceDescription>();
 
@@ -298,7 +303,7 @@ namespace chd.OpcUa.Client.Extensions
 
 
 
-        public static async Task CollectFieldsAsync(this ISession session,
+        private static async Task CollectFieldsAsync(this ISession session,
             NodeId nodeId,
             List<QualifiedName> parentPath,
             List<SimpleAttributeOperand> eventFields,
@@ -389,43 +394,12 @@ namespace chd.OpcUa.Client.Extensions
 
             return false;
         }
-        public static async Task<List<SimpleAttributeOperand>> ConstructSelectClausesAsync(this ISession session, CancellationToken ct,
-            params NodeId[] eventTypeIds)
-        {
-            List<SimpleAttributeOperand> selectClauses = new List<SimpleAttributeOperand>();
-
-            SimpleAttributeOperand operand = new SimpleAttributeOperand();
-
-            operand.TypeDefinitionId = ObjectTypeIds.ConditionType;
-            operand.AttributeId = Attributes.NodeId;
-            operand.BrowsePath = new List<QualifiedName>();
-
-            selectClauses.Add(operand);
-
-            var foundNodes = new Dictionary<NodeId, List<QualifiedName>>();
-
-            if (eventTypeIds != null)
-            {
-                for (int ii = 0; ii < eventTypeIds.Length; ii++)
-                {
-                    await session.CollectFieldsAsync(eventTypeIds[ii], selectClauses, foundNodes, ct).ConfigureAwait(false);
-                }
-            }
-
-            else
-            {
-                await session.CollectFieldsAsync(ObjectTypeIds.BaseEventType, selectClauses, foundNodes, ct).ConfigureAwait(false);
-            }
-
-            return selectClauses;
-        }
 
         private static Dictionary<NodeId, Type> CreateKnownTypes()
         {
             return new Dictionary<NodeId, Type>
             {
                 [ObjectTypeIds.BaseEventType] = typeof(BaseEventState),
-                [new NodeId("ns=2;s=5:CustomEventType")] = typeof(CustomEventState<>),
                 [ObjectTypeIds.ConditionType] = typeof(ConditionState),
                 [ObjectTypeIds.DialogConditionType] = typeof(DialogConditionState),
                 [ObjectTypeIds.AlarmConditionType] = typeof(AlarmConditionState),
@@ -436,7 +410,7 @@ namespace chd.OpcUa.Client.Extensions
             };
         }
 
-        public static async Task<SimpleEventArgs?> ProcessEventNotificationAsync(this ISession session, Dictionary<uint, EventFilter> filterByHandle, EventNotification notification, CancellationToken ct)
+        public static async Task<SimpleEventArgs?> ProcessEventNotificationAsync(this ISession session, Dictionary<uint, EventFilter> filterByHandle, Dictionary<NodeId, Type> registredTypes, EventNotification notification, CancellationToken ct)
         {
             var clientHandle = notification.MonitoredItem?.ClientHandle ?? 0;
 
@@ -450,7 +424,7 @@ namespace chd.OpcUa.Client.Extensions
                 return null;
             }
 
-            var baseEvent = await session.ConstructEventAsync(filter, fields, CreateKnownTypes(), ct).ConfigureAwait(false);
+            var baseEvent = await session.ConstructEventAsync(filter, fields, CreateKnownTypes(), registredTypes, ct).ConfigureAwait(false);
 
             var type = await session.NodeCache.FindAsync(baseEvent.TypeDefinitionId, ct).ConfigureAwait(false);
 
@@ -470,14 +444,15 @@ namespace chd.OpcUa.Client.Extensions
         {
             if (evt is SimpleValueCustomEventState e1)
             {
-                return e1.Value;
+                return e1.Value.Value;
             }
 
             return null;
         }
 
 
-        public static async Task<AlarmEventArgs?> ProcessNotificationAsync(this ISession session, Dictionary<uint, ConditionState> conditionStates, Dictionary<uint, EventFilter> filterByHandle, EventNotification notification, CancellationToken ct)
+        public static async Task<AlarmEventArgs?> ProcessNotificationAsync(this ISession session, Dictionary<uint, ConditionState> conditionStates, Dictionary<uint, EventFilter> filterByHandle,
+            Dictionary<NodeId, Type> registeredTypes, EventNotification notification, CancellationToken ct)
         {
             uint clientHandle = notification.MonitoredItem?.ClientHandle ?? 0;
 
@@ -514,7 +489,7 @@ namespace chd.OpcUa.Client.Extensions
             var condition = await session.ConstructEventAsync(
                 filter,
                 fields,
-                CreateKnownTypes(),
+                CreateKnownTypes(), registeredTypes,
                 ct).ConfigureAwait(false) as ConditionState;
 
             if (condition is null)

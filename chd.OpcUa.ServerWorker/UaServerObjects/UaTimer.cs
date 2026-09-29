@@ -3,13 +3,20 @@ using System;
 using System.Collections.Generic;
 using System.Text;
 using chd.OpcUa.Base.System.Attributes;
+using Opc.Ua;
 
 namespace chd.OpcUa.ServerWorker.UaServerObjects
 {
     public class UaTimer(string name) : BaseUaServerObject(name, "Ua Timer Desc")
     {
         [ObjectSystemEvent()]
-        public event EventHandler<int> TimerFinished;
+        public event EventHandler TimerFinished;
+
+        [ObjectSystemEvent(SeverityMethod = nameof(Sev))]
+        public event EventHandler<int> TimerTicked;
+
+        [ObjectSystemEvent()]
+        public event EventHandler<string> TimerMode;
 
         private CancellationTokenSource _cts;
 
@@ -24,6 +31,7 @@ namespace chd.OpcUa.ServerWorker.UaServerObjects
         {
             if (State is not ETimerState.Running)
             {
+                this.TimerMode?.Invoke(this, "Timer starting");
                 this._cts = new();
                 CreateTimer(seconds);
                 return true;
@@ -40,6 +48,13 @@ namespace chd.OpcUa.ServerWorker.UaServerObjects
             State = ETimerState.Canceled;
         }
 
+        public EventSeverity Sev(string eventName) => eventName switch
+        {
+            nameof(TimerTicked) => EventSeverity.High,
+            nameof(TimerMode) => EventSeverity.Low,
+            _ => EventSeverity.Medium,
+        };
+
         private void CreateTimer(int seconds) => Task.Run(async () =>
         {
             Time = seconds;
@@ -47,9 +62,11 @@ namespace chd.OpcUa.ServerWorker.UaServerObjects
             while (Time > 0)
             {
                 await Task.Delay(TimeSpan.FromSeconds(1), _cts.Token);
+                this.TimerTicked?.Invoke(this, Time);
                 Time--;
             }
-            TimerFinished?.Invoke(this, 17);
+
+            TimerFinished?.Invoke(this, EventArgs.Empty);
 
             State = ETimerState.Finished;
         }, _cts.Token);

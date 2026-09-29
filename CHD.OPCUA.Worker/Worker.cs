@@ -1,3 +1,4 @@
+using chd.OpcUa.Base.States;
 using chd.OpcUa.Client;
 using chd.OpcUa.Contracts.Interfaces;
 using Opc.Ua;
@@ -9,12 +10,16 @@ namespace chd.OpcUa.Worker
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
             client.MonitoredItemNotification += Client_MonitoredItemNotification;
-            client.EventNotification += Client_EventNotification; ; ;
+            client.EventNotification += Client_EventNotification;
             await client.StartAsync(stoppingToken);
 
-            await client.AttachToEventsAsync("1:CHDTimer1", stoppingToken);
 
-            await client.CallMethod("2:CHDTimer1#StartAsync", stoppingToken,1);
+            var additional = new Dictionary<(string,Type), List<string>>();
+            additional[("ns=2;s=5:SimpleValueCustomEventType",typeof(SimpleValueCustomEventState))] = ["Value"];
+
+            await client.AttachToEventsAsync("1:CHDTimer1", additional, stoppingToken);
+
+            await client.CallMethod("2:CHDTimer1#StartAsync", stoppingToken, 1);
 
 
             await client.MonitorItem("1:CHDTimer1?Time", 500, stoppingToken);

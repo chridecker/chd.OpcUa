@@ -110,7 +110,7 @@ namespace chd.OpcUa.Server.Model
         {
             var baseEvent = CreateEvent(e);
             if (baseEvent is null) { return ValueTask.CompletedTask; }
-
+            baseEvent.ReceiveTime.Value = e.Time;
             return this.ReportEventAsync(_nodeManager.SystemContext, baseEvent, cancellationToken);
         }
 
@@ -118,7 +118,7 @@ namespace chd.OpcUa.Server.Model
         private BaseEventState CreateEvent(UnderlyingSystemEvent e)
             => e.Type switch
             {
-                var x when x.IsValueType || x.Equals(typeof(string)) => CreateSimpleValueEvent(e),
+                var x when !x.Equals(typeof(void)) && x.IsValueType || x.Equals(typeof(string)) => CreateSimpleValueEvent(e),
                 _ => CreateBaseEvent(e)
             };
 
@@ -138,7 +138,7 @@ namespace chd.OpcUa.Server.Model
                 _nodeManager.NamespaceIndex);
             evt.Initialize(_nodeManager.SystemContext, this, e.Severity, LocalizedText.From(e.Message));
 
-            evt.Value.Value = e.Value.ConvertToVariant();
+            evt.Value.Value = e.Value?.ConvertToVariant();
             return evt;
         }
 

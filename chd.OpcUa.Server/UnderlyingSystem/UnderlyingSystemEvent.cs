@@ -10,12 +10,14 @@ namespace chd.OpcUa.Server.UnderlyingSystem
     {
         public string Message { get; set; }
         public object Value { get; set; }
-        public Type Type{ get; set; }
-        public EventSeverity Severity { get; set; }
+        public Type Type { get; set; }
+        public EventSeverity Severity { get; set; } = EventSeverity.Medium;
+        public DateTimeUtc Time { get; set; } = DateTimeUtc.Now;
 
-        public UnderlyingSystemEvent(string name, string description) : base(name)
+        public UnderlyingSystemEvent(string name, string description, Type type) : base(name)
         {
             Description = description;
+            Type = type;
         }
 
         public UnderlyingSystemEvent CreateSnapshot() => (UnderlyingSystemEvent)MemberwiseClone();
