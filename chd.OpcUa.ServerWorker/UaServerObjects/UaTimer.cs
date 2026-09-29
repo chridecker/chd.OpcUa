@@ -16,6 +16,9 @@ namespace chd.OpcUa.ServerWorker.UaServerObjects
         public event EventHandler<int> TimerTicked;
 
         [ObjectSystemEvent()]
+        public event EventHandler<TimerState> TimerState;
+
+        [ObjectSystemEvent()]
         public event EventHandler<string> TimerMode;
 
         private CancellationTokenSource _cts;
@@ -63,6 +66,7 @@ namespace chd.OpcUa.ServerWorker.UaServerObjects
             {
                 await Task.Delay(TimeSpan.FromSeconds(1), _cts.Token);
                 this.TimerTicked?.Invoke(this, Time);
+                this.TimerState?.Invoke(this, new() { Time = Time });
                 Time--;
             }
 
@@ -70,6 +74,12 @@ namespace chd.OpcUa.ServerWorker.UaServerObjects
 
             State = ETimerState.Finished;
         }, _cts.Token);
+    }
+
+    public class TimerState
+    {
+        public int Time { get; set; }
+        public DateTime Date { get; set; } = DateTime.Now;
     }
 
     public enum ETimerState : byte

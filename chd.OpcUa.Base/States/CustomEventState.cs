@@ -6,7 +6,8 @@ using System.Text;
 
 namespace chd.OpcUa.Base.States
 {
-    public abstract class CustomEventState<TValue> : BaseEventState
+    public abstract class CustomEventState<TBuilder, TValue> : BaseEventState
+    where TBuilder : struct, IVariantBuilder<TValue>
     {
         private readonly NodeId _nodeId;
 
@@ -14,7 +15,7 @@ namespace chd.OpcUa.Base.States
 
         public CustomEventState(NodeState? parent, ushort namespaceIndex) : base(parent)
         {
-            Value = PropertyState<TValue>.With<EventValueBuilder<TValue>>(parent);
+            Value = PropertyState<TValue>.With<TBuilder>(parent);
             Value.BrowseName = new QualifiedName(nameof(Value), namespaceIndex);
             Value.SymbolicName = nameof(Value);
             Value.TypeDefinitionId = VariableTypeIds.PropertyType;
@@ -27,7 +28,7 @@ namespace chd.OpcUa.Base.States
         public CustomEventState(NodeId nodeId, Func<NodeState, NodeId> createValueId, NodeState? parent, ushort namespaceIndex) : base(parent)
         {
             _nodeId = nodeId;
-            Value = PropertyState<TValue>.With<EventValueBuilder<TValue>>(parent);
+            Value = PropertyState<TValue>.With<TBuilder>(parent);
             Value.SymbolicName = nameof(Value);
             Value.BrowseName = new QualifiedName(nameof(Value), namespaceIndex);
             Value.DisplayName = new LocalizedText(nameof(Value));
@@ -46,7 +47,7 @@ namespace chd.OpcUa.Base.States
         }
 
         public static BaseObjectTypeState CreateEventType<T>(NodeId nodeId, Func<NodeState, NodeId> createValueId, ushort namespaceIndex)
-        where T : CustomEventState<TValue>
+        where T : CustomEventState<TBuilder, TValue>
         {
             var eventType = new BaseObjectTypeState
             {
@@ -63,7 +64,7 @@ namespace chd.OpcUa.Base.States
                 ObjectTypeIds.BaseEventType);
 
 
-            var value = PropertyState<object>.With<EventValueBuilder<object>>(eventType);
+            var value = PropertyState<TValue>.With<TBuilder>(eventType);
 
             value.SymbolicName = nameof(Value);
             value.BrowseName = new QualifiedName(nameof(Value), namespaceIndex);

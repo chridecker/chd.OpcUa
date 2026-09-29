@@ -5,7 +5,7 @@ using Opc.Ua;
 
 namespace chd.OpcUa.Base.States
 {
-    public class SimpleValueCustomEventState : CustomEventState<object>
+    public class SimpleValueCustomEventState : CustomEventState<SimpleValueBuilder,object>
     {
         public SimpleValueCustomEventState(NodeState? parent, ushort namespaceIndex) : base(parent, namespaceIndex)
         {

@@ -7,8 +7,10 @@ using Opc.Ua.Server;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Reflection;
 using System.Text;
 using chd.OpcUa.Base.States;
+using chd.OpcUa.Base.System.Attributes;
 
 namespace chd.OpcUa.Server.Model
 {
@@ -119,6 +121,7 @@ namespace chd.OpcUa.Server.Model
             => e.Type switch
             {
                 var x when !x.Equals(typeof(void)) && x.IsValueType || x.Equals(typeof(string)) => CreateSimpleValueEvent(e),
+                var x when !x.Equals(typeof(void)) && !x.IsValueType && x.IsClass => CreateObjectValueEvent(e),
                 _ => CreateBaseEvent(e)
             };
 
@@ -139,6 +142,29 @@ namespace chd.OpcUa.Server.Model
             evt.Initialize(_nodeManager.SystemContext, this, e.Severity, LocalizedText.From(e.Message));
 
             evt.Value.Value = e.Value?.ConvertToVariant();
+            return evt;
+        }
+        private ComplexValueCustomEventState CreateComplexValueEvent(UnderlyingSystemEvent e)
+        {
+            var evt = new ComplexValueCustomEventState(
+                ModelUtils.ConstructIdForEventType<ComplexValueCustomEventState>(_nodeManager.NamespaceIndex),
+                state => ModelUtils.ConstructIdForComponent(state, _nodeManager.NamespaceIndex), this,
+                _nodeManager.NamespaceIndex);
+            evt.Initialize(_nodeManager.SystemContext, this, e.Severity, LocalizedText.From(e.Message));
+
+            evt.Value.Value = e.Value;
+            return evt;
+        }
+        private ObjectValueCustomEventState CreateObjectValueEvent(UnderlyingSystemEvent e)
+        {
+            var evt = new ObjectValueCustomEventState(
+                ModelUtils.ConstructIdForEventType<ObjectValueCustomEventState>(_nodeManager.NamespaceIndex),
+                state => ModelUtils.ConstructIdForComponent(state, _nodeManager.NamespaceIndex), this,
+                _nodeManager.NamespaceIndex);
+            evt.Initialize(_nodeManager.SystemContext, this, e.Severity, LocalizedText.From(e.Message));
+
+            var props = e.Type.GetProperties(BindingFlags.Instance | BindingFlags.Public);
+            evt.Value.Value = props.Select(s => s.GetValue(e.Value)).ToArray();
             return evt;
         }
 

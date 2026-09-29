@@ -14,8 +14,10 @@ namespace chd.OpcUa.Worker
             await client.StartAsync(stoppingToken);
 
 
-            var additional = new Dictionary<(string,Type), List<string>>();
-            additional[("ns=2;s=5:SimpleValueCustomEventType",typeof(SimpleValueCustomEventState))] = ["Value"];
+            var additional = new Dictionary<(string, Type), List<string>>();
+            additional[($"ns=2;s=5:{nameof(SimpleValueCustomEventState).Replace("State", "Type")}", typeof(SimpleValueCustomEventState))] = ["Value"];
+            additional[($"ns=2;s=5:{nameof(ComplexValueCustomEventState).Replace("State", "Type")}", typeof(ComplexValueCustomEventState))] = ["Value"];
+            additional[($"ns=2;s=5:{nameof(ObjectValueCustomEventState).Replace("State", "Type")}", typeof(ObjectValueCustomEventState))] = ["Value"];
 
             await client.AttachToEventsAsync("1:CHDTimer1", additional, stoppingToken);
 

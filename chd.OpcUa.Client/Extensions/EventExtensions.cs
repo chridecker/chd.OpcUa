@@ -446,6 +446,14 @@ namespace chd.OpcUa.Client.Extensions
             {
                 return e1.Value.Value;
             }
+            if (evt is ComplexValueCustomEventState e2)
+            {
+                return e2.Value.Value;
+            }
+            if (evt is ObjectValueCustomEventState e3)
+            {
+                return e3.Value.Value;
+            }
 
             return null;
         }

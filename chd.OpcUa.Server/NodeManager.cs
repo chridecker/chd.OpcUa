@@ -38,16 +38,28 @@ namespace chd.OpcUa.ServerWorker
             await base.CreateAddressSpaceAsync(externalReferences, cancellationToken).ConfigureAwait(false);
 
 
-            var customEventTypeId =
-                ModelUtils.ConstructIdForEventType<SimpleValueCustomEventState>(
-                    NamespaceIndex);
+            var simpleEventTypeId =ModelUtils.ConstructIdForEventType<SimpleValueCustomEventState>(NamespaceIndex);
+
+            MasterNodeManager.CreateExternalReference(externalReferences, ObjectTypeIds.BaseEventType,
+                ReferenceTypeIds.HasSubtype,
+                false,
+                simpleEventTypeId);
+           
+            var objectEventTypeId = ModelUtils.ConstructIdForEventType<ObjectValueCustomEventState>( NamespaceIndex);
+            var complexEventTypeId = ModelUtils.ConstructIdForEventType<ComplexValueCustomEventState>( NamespaceIndex);
 
             MasterNodeManager.CreateExternalReference(
                 externalReferences,
                 ObjectTypeIds.BaseEventType,
                 ReferenceTypeIds.HasSubtype,
                 false,
-                customEventTypeId);
+                objectEventTypeId);
+            MasterNodeManager.CreateExternalReference(
+                externalReferences,
+                ObjectTypeIds.BaseEventType,
+                ReferenceTypeIds.HasSubtype,
+                false,
+                complexEventTypeId);
 
 
             foreach (var segment in await _underlyingSystemManager.GetMainSegmentsAsync(cancellationToken))
@@ -280,6 +292,16 @@ namespace chd.OpcUa.ServerWorker
                 parsedNodeId.RootId == nameof(SimpleValueCustomEventState).Replace("State", "Type"))
             {
                 root = SimpleValueCustomEventState.CreateEventType<SimpleValueCustomEventState>(ModelUtils.ConstructIdForEventType<SimpleValueCustomEventState>(NamespaceIndex), state => ModelUtils.ConstructIdForComponent(state, NamespaceIndex), NamespaceIndex);
+            }
+            else if (parsedNodeId.RootType == ModelUtils.EventType &&
+                parsedNodeId.RootId == nameof(ObjectValueCustomEventState).Replace("State", "Type"))
+            {
+                root = ObjectValueCustomEventState.CreateEventType<ObjectValueCustomEventState>(ModelUtils.ConstructIdForEventType<ObjectValueCustomEventState>(NamespaceIndex), state => ModelUtils.ConstructIdForComponent(state, NamespaceIndex), NamespaceIndex);
+            }
+            else if (parsedNodeId.RootType == ModelUtils.EventType &&
+                parsedNodeId.RootId == nameof(ComplexValueCustomEventState).Replace("State", "Type"))
+            {
+                root = ComplexValueCustomEventState.CreateEventType<ComplexValueCustomEventState>(ModelUtils.ConstructIdForEventType<ComplexValueCustomEventState>(NamespaceIndex), state => ModelUtils.ConstructIdForComponent(state, NamespaceIndex), NamespaceIndex);
             }
             else
             {

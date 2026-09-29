@@ -32,112 +32,150 @@ namespace chd.OpcUa.Base.Extensions
 
         public static object GetValue(this DataValue value)
         {
+            if (!value.WrappedValue.TypeInfo.IsArray)
+            {
+                switch (value.WrappedValue.TypeInfo.BuiltInType)
+                {
+                    case BuiltInType.Boolean:
+                        {
+                            if (value.WrappedValue.TryGetValue(out bool val)) ;
+                            {
+                                return val;
+                            }
+                            return false;
+                        }
+                    case BuiltInType.SByte:
+
+                        {
+                            if (value.WrappedValue.TryGetValue(out sbyte val))
+                            {
+                                return val;
+                            }
+                            return 0;
+                        }
+
+                    case BuiltInType.Byte:
+                        {
+                            if (value.WrappedValue.TryGetValue(out byte val)) ;
+                            {
+                                return val;
+                            }
+                            return 0;
+                        }
+
+                    case BuiltInType.Int16:
+                        {
+                            if (value.WrappedValue.TryGetValue(out short val))
+                            {
+                                return val;
+                            }
+                            return 0;
+                        }
+
+                    case BuiltInType.UInt16:
+                        {
+                            if (value.WrappedValue.TryGetValue(out ushort val))
+                            {
+                                return val;
+                            }
+                            return 0;
+                        }
+
+                    case BuiltInType.Int32:
+                        {
+                            if (value.WrappedValue.TryGetValue(out int val)) ;
+                            {
+                                return val;
+                            }
+                            return 0;
+                        }
+
+                    case BuiltInType.UInt32:
+                        {
+                            if (value.WrappedValue.TryGetValue(out uint val)) ;
+                            {
+                                return val;
+                            }
+                            return 0;
+                        }
+
+                    case BuiltInType.Int64:
+                        {
+                            if (value.WrappedValue.TryGetValue(out long val)) ;
+                            {
+                                return val;
+                            }
+                            return 0;
+                        }
+
+                    case BuiltInType.UInt64:
+                        {
+                            if (value.WrappedValue.TryGetValue(out ulong val))
+                            {
+                                return val;
+                            }
+                            return 0;
+                        }
+
+                    case BuiltInType.Float:
+                        {
+                            if (value.WrappedValue.TryGetValue(out float val))
+                            {
+                                return val;
+                            }
+                            return 0;
+                        }
+
+                    case BuiltInType.Double:
+                        {
+                            if (value.WrappedValue.TryGetValue(out double val))
+                            {
+                                return val;
+                            }
+
+                            return 0;
+                        }
+
+                    default:
+                        return value.WrappedValue.Value;
+                }
+            }
             switch (value.WrappedValue.TypeInfo.BuiltInType)
             {
                 case BuiltInType.Boolean:
-                    {
-                        if (value.WrappedValue.TryGetValue(out bool val)) ;
-                        {
-                            return val;
-                        }
-                        return false;
-                    }
+                    return value.WrappedValue.GetBooleanArray();
                 case BuiltInType.SByte:
-
-                    {
-                        if (value.WrappedValue.TryGetValue(out sbyte val))
-                        {
-                            return val;
-                        }
-                        return 0;
-                    }
+                    return value.WrappedValue.GetSByteArray();
 
                 case BuiltInType.Byte:
-                    {
-                        if (value.WrappedValue.TryGetValue(out byte val)) ;
-                        {
-                            return val;
-                        }
-                        return 0;
-                    }
+                    return value.WrappedValue.GetByteArray();
 
                 case BuiltInType.Int16:
-                    {
-                        if (value.WrappedValue.TryGetValue(out short val))
-                        {
-                            return val;
-                        }
-                        return 0;
-                    }
+                    return value.WrappedValue.GetInt16Array();
 
                 case BuiltInType.UInt16:
-                    {
-                        if (value.WrappedValue.TryGetValue(out ushort val))
-                        {
-                            return val;
-                        }
-                        return 0;
-                    }
+                    return value.WrappedValue.GetUInt16Array();
 
                 case BuiltInType.Int32:
-                    {
-                        if (value.WrappedValue.TryGetValue(out int val)) ;
-                        {
-                            return val;
-                        }
-                        return 0;
-                    }
+                    return value.WrappedValue.GetInt32();
 
                 case BuiltInType.UInt32:
-                    {
-                        if (value.WrappedValue.TryGetValue(out uint val)) ;
-                        {
-                            return val;
-                        }
-                        return 0;
-                    }
+                    return value.WrappedValue.GetUInt32Array();
 
                 case BuiltInType.Int64:
-                    {
-                        if (value.WrappedValue.TryGetValue(out long val)) ;
-                        {
-                            return val;
-                        }
-                        return 0;
-                    }
+                    return value.WrappedValue.GetInt64Array();
 
                 case BuiltInType.UInt64:
-                    {
-                        if (value.WrappedValue.TryGetValue(out ulong val))
-                        {
-                            return val;
-                        }
-                        return 0;
-                    }
+                    return value.WrappedValue.GetUInt64Array();
 
                 case BuiltInType.Float:
-                    {
-                        if (value.WrappedValue.TryGetValue(out float val))
-                        {
-                            return val;
-                        }
-                        return 0;
-                    }
+                    return value.WrappedValue.GetFloatArray();
 
                 case BuiltInType.Double:
-                    {
-                        if (value.WrappedValue.TryGetValue(out double val))
-                        {
-                            return val;
-                        }
-
-                        return 0;
-                    }
+                    return value.WrappedValue.GetDoubleArray();
 
                 default:
-                    {
-                        return value.WrappedValue.Value;
-                    }
+                    return value.WrappedValue.Value;
             }
         }
 
