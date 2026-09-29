@@ -5,7 +5,8 @@ using Opc.Ua.Client.Subscriptions;
 using System;
 using System.Collections.Generic;
 using System.Text;
-using static System.Collections.Specialized.BitVector32;
+using chd.OpcUa.Base.Extensions;
+using chd.OpcUa.Base.States;
 
 namespace chd.OpcUa.Client.Extensions
 {
@@ -40,44 +41,27 @@ namespace chd.OpcUa.Client.Extensions
             EventFilter filter,
             EventFieldList notification,
             Dictionary<NodeId, Type> knownEventTypes,
-            Dictionary<NodeId, NodeId> eventTypeMappings,
             CancellationToken ct = default)
         {
-            // find the event type.
-            NodeId eventTypeId = FindEventType(filter, notification);
-
+            var eventTypeId = FindEventType(filter, notification);
             if (eventTypeId.IsNull)
             {
                 return null;
             }
 
-            // look up the known event type.
             Type knownType = null;
             NodeId knownTypeId = NodeId.Null;
 
-            if (eventTypeMappings.TryGetValue(eventTypeId, out knownTypeId))
+            if (knownType is null
+                && knownEventTypes.TryGetValue(eventTypeId, out knownType))
             {
-                knownType = knownEventTypes[knownTypeId];
+                knownTypeId = eventTypeId;
             }
 
-            // try again.
-            if (knownType == null)
+            if (knownType is null)
             {
-                if (knownEventTypes.TryGetValue(eventTypeId, out knownType))
-                {
-                    knownTypeId = eventTypeId;
-                    eventTypeMappings.TryAdd(eventTypeId, eventTypeId);
-                }
-            }
-
-            // try mapping it to a known type.
-            if (knownType == null)
-            {
-                // browse for the supertypes of the event type.
-                List<ReferenceDescription> supertypes = await BrowseSuperTypesAsync(session, eventTypeId, false, ct).ConfigureAwait(false);
-
-                // can't do anything with unknown types.
-                if (supertypes == null)
+                var supertypes = await BrowseSuperTypesAsync(session, eventTypeId, false, ct).ConfigureAwait(false);
+                if (supertypes is null)
                 {
                     return null;
                 }
@@ -85,12 +69,11 @@ namespace chd.OpcUa.Client.Extensions
                 // find the first supertype that matches a known event type.
                 for (int ii = 0; ii < supertypes.Count; ii++)
                 {
-                    NodeId superTypeId = (NodeId)supertypes[ii].NodeId;
+                    var superTypeId = (NodeId)supertypes[ii].NodeId;
 
                     if (knownEventTypes.TryGetValue(superTypeId, out knownType))
                     {
                         knownTypeId = superTypeId;
-                        eventTypeMappings.TryAdd(eventTypeId, superTypeId);
                     }
 
                     if (!knownTypeId.IsNull)
@@ -106,8 +89,15 @@ namespace chd.OpcUa.Client.Extensions
                 }
             }
 
-            // construct the event based on the known event type.
-            BaseEventState e = (BaseEventState)Activator.CreateInstance(knownType, new object[] { (NodeState)null });
+            var constructorParam = new List<object>()
+            {
+                (NodeState)null
+            };
+            if (knownType.GetConstructors().Any(a => a.GetParameters().Length > 1))
+            {
+                constructorParam.Add(eventTypeId.NamespaceIndex);
+            }
+            var e = (BaseEventState)Activator.CreateInstance(knownType, constructorParam.ToArray());
 
             // initialize the event with the values in the notification.
             e.Update(session.SystemContext, filter.SelectClauses, notification);
@@ -280,6 +270,7 @@ namespace chd.OpcUa.Client.Extensions
                 return null;
             }
         }
+
         private static async Task CollectFieldsAsync(this ISession session,
             NodeId eventTypeId,
             List<SimpleAttributeOperand> eventFields,
@@ -434,6 +425,7 @@ namespace chd.OpcUa.Client.Extensions
             return new Dictionary<NodeId, Type>
             {
                 [ObjectTypeIds.BaseEventType] = typeof(BaseEventState),
+                [new NodeId("ns=2;s=5:CustomEventType")] = typeof(CustomEventState<>),
                 [ObjectTypeIds.ConditionType] = typeof(ConditionState),
                 [ObjectTypeIds.DialogConditionType] = typeof(DialogConditionState),
                 [ObjectTypeIds.AlarmConditionType] = typeof(AlarmConditionState),
@@ -444,7 +436,48 @@ namespace chd.OpcUa.Client.Extensions
             };
         }
 
-        public static async Task<EventAlarmEventArgs?> ProcessNotificationAsync(this ISession session, Dictionary<uint, ConditionState> conditionStates, Dictionary<uint, EventFilter> filterByHandle, EventNotification notification, CancellationToken ct)
+        public static async Task<SimpleEventArgs?> ProcessEventNotificationAsync(this ISession session, Dictionary<uint, EventFilter> filterByHandle, EventNotification notification, CancellationToken ct)
+        {
+            var clientHandle = notification.MonitoredItem?.ClientHandle ?? 0;
+
+            if (!filterByHandle.TryGetValue(clientHandle, out EventFilter filter)) { return null; }
+
+            var fields = notification.ToFieldList();
+
+            var eventTypeId = filter.FindEventType(fields);
+            if (eventTypeId.IsNull)
+            {
+                return null;
+            }
+
+            var baseEvent = await session.ConstructEventAsync(filter, fields, CreateKnownTypes(), ct).ConfigureAwait(false);
+
+            var type = await session.NodeCache.FindAsync(baseEvent.TypeDefinitionId, ct).ConfigureAwait(false);
+
+            return new SimpleEventArgs()
+            {
+                Id = baseEvent.EventId.Value.Memory.Span.ToArray(),
+                Type = type?.ToString(),
+                SourceName = baseEvent.SourceName?.Value,
+                Time = baseEvent.Time.Value.ToDateTime(),
+                Severity = baseEvent.Severity.Value,
+                Message = baseEvent.Message?.Value.Text,
+                Value = GetEventValue(baseEvent)
+            };
+        }
+
+        private static object GetEventValue(BaseEventState evt)
+        {
+            if (evt is SimpleValueCustomEventState e1)
+            {
+                return e1.Value;
+            }
+
+            return null;
+        }
+
+
+        public static async Task<AlarmEventArgs?> ProcessNotificationAsync(this ISession session, Dictionary<uint, ConditionState> conditionStates, Dictionary<uint, EventFilter> filterByHandle, EventNotification notification, CancellationToken ct)
         {
             uint clientHandle = notification.MonitoredItem?.ClientHandle ?? 0;
 
@@ -477,13 +510,11 @@ namespace chd.OpcUa.Client.Extensions
                 return null;
             }
 
-            var d = new Dictionary<NodeId, NodeId>();
             // construct the condition object.
             var condition = await session.ConstructEventAsync(
                 filter,
                 fields,
                 CreateKnownTypes(),
-                d,
                 ct).ConfigureAwait(false) as ConditionState;
 
             if (condition is null)
@@ -496,7 +527,7 @@ namespace chd.OpcUa.Client.Extensions
             INode type = await session.NodeCache.FindAsync(condition.TypeDefinitionId, ct).ConfigureAwait(false);
 
 
-            return new EventAlarmEventArgs()
+            return new AlarmEventArgs()
             {
                 Id = condition.EventId.Value.Memory,
                 Handle = clientHandle,
@@ -520,137 +551,5 @@ namespace chd.OpcUa.Client.Extensions
             };
         }
 
-        public static EventFilter ConstructFilter(this List<SimpleAttributeOperand> clauses, EventSeverity severity = EventSeverity.Min, bool ignoreSuppressedOrShelved = false)
-        {
-            var filter = new EventFilter();
-            filter.SelectClauses = clauses.ToArrayOf();
-
-            var whereClause = new ContentFilter();
-            // add the severity.
-            ContentFilterElement element1 = null;
-            ContentFilterElement element2 = null;
-
-            if (severity > EventSeverity.Min)
-            {
-                // select the Severity property of the event.
-                SimpleAttributeOperand operand1 = new SimpleAttributeOperand();
-                operand1.TypeDefinitionId = ObjectTypeIds.BaseEventType;
-                operand1.BrowsePath = new List<QualifiedName> { new QualifiedName(BrowseNames.Severity) }.ToArrayOf();
-                operand1.AttributeId = Attributes.Value;
-
-                // specify the value to compare the Severity property with.
-                LiteralOperand operand2 = new LiteralOperand();
-                operand2.Value = new Variant((ushort)severity);
-
-                // specify that the Severity property must be GreaterThanOrEqual the value specified.
-                element1 = whereClause.Push(FilterOperator.GreaterThanOrEqual, new Variant(new ExtensionObject(operand1)), new Variant(new ExtensionObject(operand2)));
-            }
-
-            // add the suppressed or shelved.
-            if (!ignoreSuppressedOrShelved)
-            {
-                // select the SuppressedOrShelved property of the event.
-                SimpleAttributeOperand operand1 = new SimpleAttributeOperand();
-                operand1.TypeDefinitionId = ObjectTypeIds.BaseEventType;
-                operand1.BrowsePath = new List<QualifiedName> { new QualifiedName(BrowseNames.SuppressedOrShelved) }.ToArrayOf();
-                operand1.AttributeId = Attributes.Value;
-
-                // specify the value to compare the Severity property with.
-                LiteralOperand operand2 = new LiteralOperand();
-                operand2.Value = new Variant(false);
-
-                // specify that the Severity property must Equal the value specified.
-                element2 = whereClause.Push(FilterOperator.Equals, new Variant(new ExtensionObject(operand1)), new Variant(new ExtensionObject(operand2)));
-
-                // SuppressedOrShelved is declared by AlarmConditionType, so an event of a
-                // condition which is not an alarm - the OnlineState dialog of a source, for
-                // one - carries no such field. An operand which resolves to nothing makes
-                // Equals answer null and the element false, so the clause on its own would
-                // silently drop every non alarm condition. Asking it only of the alarms is
-                // what keeps the dialogs of the sample in the list.
-                LiteralOperand operand3 = new LiteralOperand();
-                operand3.Value = new Variant(ObjectTypeIds.AlarmConditionType);
-
-                ContentFilterElement isAlarm = whereClause.Push(FilterOperator.OfType, new Variant(new ExtensionObject(operand3)));
-                ContentFilterElement notAnAlarm = whereClause.Push(FilterOperator.Not, new Variant(new ExtensionObject(isAlarm)));
-
-                element2 = whereClause.Push(FilterOperator.Or, new Variant(new ExtensionObject(notAnAlarm)), new Variant(new ExtensionObject(element2)));
-
-                // chain multiple elements together with an AND clause.
-                if (element1 != null)
-                {
-                    element1 = whereClause.Push(FilterOperator.And, new Variant(new ExtensionObject(element1)), new Variant(new ExtensionObject(element2)));
-                }
-                else
-                {
-                    element1 = element2;
-                }
-            }
-            var eventTypes = new List<NodeId> { ObjectTypeIds.ConditionType };
-
-            // add the event types.
-            if (eventTypes != null && eventTypes.Count > 0)
-            {
-                element2 = null;
-
-                // save the last element.
-                for (int ii = 0; ii < eventTypes.Count; ii++)
-                {
-                    // for this example uses the 'OfType' operator to limit events to thoses with specified event type.
-                    LiteralOperand operand1 = new LiteralOperand();
-                    operand1.Value = new Variant(eventTypes[ii]);
-                    ContentFilterElement element3 = whereClause.Push(FilterOperator.OfType, new Variant(new ExtensionObject(operand1)));
-
-                    // need to chain multiple types together with an OR clause.
-                    if (element2 != null)
-                    {
-                        element2 = whereClause.Push(FilterOperator.Or, new Variant(new ExtensionObject(element2)), new Variant(new ExtensionObject(element3)));
-                    }
-                    else
-                    {
-                        element2 = element3;
-                    }
-                }
-
-                // need to link the set of event types with the previous filters.
-                if (element1 != null)
-                {
-                    element1 = whereClause.Push(FilterOperator.And, new Variant(new ExtensionObject(element1)), new Variant(new ExtensionObject(element2)));
-                }
-                else
-                {
-                    element1 = element2;
-                }
-            }
-
-            // Part 9 frames a condition refresh with a RefreshStart and a RefreshEnd event,
-            // and a client relies on the first of the two to start its list over. The
-            // stack runs those two through the where clause like any other event, and a
-            // filter which asks for conditions - or for a severity - drops them: they are
-            // system events which carry neither. So they are asked for explicitly, next
-            // to whatever else the filter asks for.
-            if (element1 != null)
-            {
-                ContentFilterElement markers = null;
-
-                foreach (NodeId markerTypeId in new[] { ObjectTypeIds.RefreshStartEventType, ObjectTypeIds.RefreshEndEventType })
-                {
-                    LiteralOperand operand = new LiteralOperand();
-                    operand.Value = new Variant(markerTypeId);
-                    ContentFilterElement marker = whereClause.Push(FilterOperator.OfType, new Variant(new ExtensionObject(operand)));
-
-                    markers = markers == null
-                        ? marker
-                        : whereClause.Push(FilterOperator.Or, new Variant(new ExtensionObject(markers)), new Variant(new ExtensionObject(marker)));
-                }
-
-                whereClause.Push(FilterOperator.Or, new Variant(new ExtensionObject(element1)), new Variant(new ExtensionObject(markers)));
-            }
-
-            filter.WhereClause = whereClause;
-
-            // return filter.
-            return filter;
-        }
     }
 }

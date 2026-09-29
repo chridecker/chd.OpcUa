@@ -17,9 +17,8 @@ namespace chd.OpcUa.Server.Extensions
 {
     public static class DIExtensions
     {
-        public static IServiceCollection AddOpcUaServer<TNamespaceManager, TSystemManager>(this IServiceCollection services,
-            Action<ServerOptions> serverConfig = null)
-            where TNamespaceManager : class, INamespaceManager
+        public static IServiceCollection AddOpcUaServer<TSystemManager>(this IServiceCollection services,
+            Action<ServerOptions> serverConfig)
             where TSystemManager : UnderlyingSystemManager
         {
             if (serverConfig is not null)
@@ -27,11 +26,32 @@ namespace chd.OpcUa.Server.Extensions
                 services.Configure<ServerOptions>(serverConfig);
             }
 
+
             var server = services.AddOpcUa()
                  .AddServer(config =>
                  {
-                     config.ApplicationName = "CHDTest";
-                     config.EndpointUrls.Add("opc.tcp://localhost:4840/CHD/Server");
+                     ServerOptions localConfig = null;
+                     if (serverConfig is not null)
+                     {
+                         localConfig = new();
+                         serverConfig(localConfig);
+                     }
+
+
+                     config.ApplicationName = localConfig?.ApplicationName ?? nameof(UaServer);
+                     config.ApplicationUri = localConfig?.ApplicationUri ?? "urn:localhost:UA:CHDUaServer";
+
+                     if (localConfig?.Endpoints.Any() ?? false)
+                     {
+                         foreach (var localConfigEndpoint in localConfig.Endpoints)
+                         {
+                             config.EndpointUrls.Add(localConfigEndpoint);
+                         }
+                     }
+                     else
+                     {
+                         config.EndpointUrls.Add("opc.tcp://localhost:4840/CHD/UaServer");
+                     }
                      config.AutoAcceptUntrustedCertificates = true;
                      config.IncludeUnsecurePolicyNone = true;
                  })
@@ -51,7 +71,7 @@ namespace chd.OpcUa.Server.Extensions
                      //}
                      //});
                  })
-                 .AddIdentityAuthenticator((_,_)=> new UserNamePasswordAuthenticator((handler,ct) =>
+                 .AddIdentityAuthenticator((_, _) => new UserNamePasswordAuthenticator((handler, ct) =>
                  {
                      var password = handler.DecryptedPassword != null
                          ? Encoding.UTF8.GetString(handler.DecryptedPassword)
@@ -94,10 +114,7 @@ namespace chd.OpcUa.Server.Extensions
             // samples and their tests rely on.
             services.AddSingleton<UaServerStartup>();
             services.AddSingleton<IServerStartupTask, UaServerStartup>();
-            services.AddSingleton<INamespaceManager, TNamespaceManager>();
             services.AddSingleton<IUnderlyingSystemManager<UnderlyingSystemSegment, UnderlyingSystemBlock, UnderlyingSystemMethod>, TSystemManager>();
-
-
 
             return services;
         }

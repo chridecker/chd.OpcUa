@@ -9,12 +9,12 @@ namespace chd.OpcUa.Worker
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
             client.MonitoredItemNotification += Client_MonitoredItemNotification;
-            client.EventAlarmNotification += Client_EventAlarmNotification; ;
+            client.EventNotification += Client_EventNotification; ; ;
             await client.StartAsync(stoppingToken);
 
-            await client.AttachToEventsAsync("Server", stoppingToken);
+            await client.AttachToEventsAsync("1:CHDTimer1", stoppingToken);
 
-            await client.CallMethod("2:CHDTimer1#StartAsync", stoppingToken,10);
+            await client.CallMethod("2:CHDTimer1#StartAsync", stoppingToken,1);
 
 
             await client.MonitorItem("1:CHDTimer1?Time", 500, stoppingToken);
@@ -38,33 +38,9 @@ namespace chd.OpcUa.Worker
             }
         }
 
-        private async ValueTask Client_EventAlarmNotification(object? sender, Contracts.EventAlarmEventArgs e, CancellationToken cancellationToken)
+        private async ValueTask Client_EventNotification(object? sender, Contracts.SimpleEventArgs e, CancellationToken cancellationToken = default)
         {
-            try
-            {
-                logger?.LogInformation($"Event {e.ConditionName} -> {e.Message} {e.Comment} {e.StateText}");
-                //if (!e.Retain)
-                //{
-                //    logger?.LogInformation($"Event {e.ConditionName} -> {e.Message} {e.Comment} {e.StateText}");
-                //    if (e.IsAlarm)
-                //    {
-                //        await client.AcknowledgeAsync(e.Handle, e.Id, "CHD ACK", cancellationToken);
-                //    }
-                //}
-                //else
-                //{
-                //    logger?.LogWarning(
-                //        $"Event {e.ConditionName} -> {e.Message} {e.Comment} {e.StateText} {e.IsDialog} {e.IsAlarm}");
-                //    if (e.IsAlarm && string.IsNullOrWhiteSpace(e.Comment))
-                //    {
-                //        await client.AddCommentAsync(e.Handle, e.Id, "Test Comment", cancellationToken);
-                //    }
-                //}
-            }
-            catch (Exception ex)
-            {
-                logger?.LogError(ex, ex.Message);
-            }
+            logger?.LogInformation($"Event {e.SourceName} -> {e.Message} {e.Value} {e.Type} {e.Time}");
         }
 
         private async ValueTask Client_MonitoredItemNotification(object? sender, Contracts.MonitoredItemEventArgs e, CancellationToken cancellationToken)

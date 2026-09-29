@@ -29,9 +29,12 @@ namespace chd.OpcUa.Server.UnderlyingSystem
             Description = description;
         }
 
-        public void AddEvent(string name, string description)
+        public void AddEvent(string name, string description, Type type)
         {
-            var evt = new UnderlyingSystemEvent(name, description);
+            var evt = new UnderlyingSystemEvent(name, description)
+            {
+                Type = type
+            };
             _events.Add(evt);
         }
 

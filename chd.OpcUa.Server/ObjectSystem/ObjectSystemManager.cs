@@ -10,6 +10,7 @@ using System.ComponentModel;
 using System.Linq.Expressions;
 using System.Reflection;
 using System.Text;
+using chd.OpcUa.Base.System.Attributes;
 
 namespace chd.OpcUa.Server.ObjectSystem
 {
@@ -75,7 +76,7 @@ namespace chd.OpcUa.Server.ObjectSystem
             foreach (var eventInfo in realType.GetEvents().Where(x => x.IsDefined(typeof(ObjectSystemEventAttribute), inherit: true)))
             {
                 var attribute = eventInfo.GetCustomAttribute<ObjectSystemEventAttribute>();
-                block.AddEvent(attribute?.DisplayName ?? eventInfo.Name, attribute?.Description ?? string.Empty);
+                block.AddEvent(attribute?.DisplayName ?? eventInfo.Name, attribute?.Description ?? string.Empty, eventInfo.EventHandlerType.IsGenericType ? eventInfo.EventHandlerType.GenericTypeArguments.FirstOrDefault()  : typeof(void));
 
                 eventInfo.AddEventHandler(instance, CreateHandler(eventInfo));
             }

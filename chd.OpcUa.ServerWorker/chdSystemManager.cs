@@ -86,14 +86,14 @@ namespace chd.OpcUa.ServerWorker
                 case "FlowSensor":
                     {
                         block.CreateTag<float>("Measurement", "liters/sec", false);
-                        block.CreateTag<ESystemState>("Status", "", false, Enum.GetNames<ESystemState>());
+                        //block.CreateTag<ESystemState>("Status", "", false, Enum.GetNames<ESystemState>());
                         break;
                     }
 
                 case "LevelSensor":
                     {
                         block.CreateTag<float>("Measurement", "liters", false);
-                        block.CreateTag<ESystemState>("Status", "", false, Enum.GetNames<ESystemState>());
+                        //block.CreateTag<ESystemState>("Status", "", false, Enum.GetNames<ESystemState>());
                         break;
                     }
 
@@ -102,7 +102,7 @@ namespace chd.OpcUa.ServerWorker
                         block.CreateTag<int>("SetPoint", "", true);
                         block.CreateTag<float>("Measurement", "liters", false);
                         block.CreateTag<int>("Output", "", false);
-                        block.CreateTag<ESystemState>("Status", "", false, Enum.GetNames<ESystemState>());
+                        //block.CreateTag<ESystemState>("Status", "", false, Enum.GetNames<ESystemState>());
                         break;
                     }
 
@@ -112,9 +112,9 @@ namespace chd.OpcUa.ServerWorker
                         block.CreateTag<int>("Input2", "", true);
                         block.CreateTag<decimal>("Input3", "", true);
                         block.CreateTag<string>("Input4", "", true);
-                        block.CreateTag<ESystemState>("Status", "", false, Enum.GetNames<ESystemState>());
+                        //block.CreateTag<ESystemState>("Status", "", false, Enum.GetNames<ESystemState>());
 
-                        block.AddEvent("Test", "Test");
+                        block.AddEvent("Test", "Test", typeof(string));
 
                         block.AddMethod(nameof(StartCustomController), "", true, (method) =>
                         {
@@ -137,7 +137,7 @@ namespace chd.OpcUa.ServerWorker
             _ = await b.WriteTagValueAsync("Input2", (int)initalState + (int)finalState, cancellationToken);
             await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken);
 
-            await b.TriggerEvent("Test", "Did it",cancellationToken);
+            await b.TriggerEvent("Test", "Did it", cancellationToken);
 
             return new object[] { finalState, initalState };
         }

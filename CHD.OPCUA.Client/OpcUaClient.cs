@@ -3,7 +3,6 @@ using chd.OpcUa.Client.Extensions;
 using chd.OpcUa.Contracts;
 using chd.OpcUa.Contracts.Interfaces;
 using chd.OpcUa.Contracts.Options;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Opc.Ua;
@@ -12,15 +11,16 @@ using Opc.Ua.Client.ComplexTypes;
 using Opc.Ua.Client.Subscriptions;
 using Opc.Ua.Client.Subscriptions.MonitoredItems;
 using Opc.Ua.Configuration;
-using Opc.Ua.Schema.Types;
-using Opc.Ua.Server.Hosting;
 using System.Diagnostics;
 using System.Net;
 using System.Security.Principal;
 using System.Text.Unicode;
 using System.Threading.Channels;
 using System.Xml.Linq;
+using chd.OpcUa.Base.States;
+using static Opc.Ua.RelativePathFormatter;
 using static System.Collections.Specialized.BitVector32;
+using static System.Net.WebRequestMethods;
 using MonitoredItemOptions = Opc.Ua.Client.Subscriptions.MonitoredItems.MonitoredItemOptions;
 using SubscriptionOptions = Opc.Ua.Client.Subscriptions.SubscriptionOptions;
 
@@ -30,10 +30,10 @@ namespace chd.OpcUa.Client
         OpcUaClientOptions c,
         ITelemetryContext telemetryContext,
         NotificationHandler subscriptionNotificationHandler,
-        IOptionsMonitor<Contracts.Options.OpcUaClientConnectionOptions> optionsMonitor,
+        IOptionsMonitor<OpcUaClientConnectionOptions> optionsMonitor,
         IOptionsMonitor<SubscriptionOptions> subscritptionsOptionsMonitor) : IOpcUAClient
     {
-        private Contracts.Options.OpcUaClientConnectionOptions ConnectionOptions => optionsMonitor.CurrentValue;
+        private OpcUaClientConnectionOptions ConnectionOptions => optionsMonitor.CurrentValue;
         private ApplicationInstance? _instance;
         private ApplicationConfiguration? _configuration => _instance.ApplicationConfiguration;
 
@@ -53,11 +53,14 @@ namespace chd.OpcUa.Client
             { SingleReader = true, SingleWriter = false });
 
         private Task _channelConsumer;
+        private ComplexTypeSystem _typeSystem;
 
         public bool IsConnected => _session is not null && _session.Connected;
 
         public event AsyncEventHandler<MonitoredItemEventArgs> MonitoredItemNotification;
-        public event AsyncEventHandler<EventAlarmEventArgs> EventAlarmNotification;
+        public event AsyncEventHandler<AlarmEventArgs> AlarmNotification;
+        public event AsyncEventHandler<SimpleEventArgs> EventNotification;
+
 
         public async Task StartAsync(CancellationToken cancellationToken = default)
         {
@@ -132,7 +135,25 @@ namespace chd.OpcUa.Client
             {
                 CreateEventsSubscription(cancellationToken);
 
-                var selectClauses = await _session.ConstructSelectClausesAsync(cancellationToken, ObjectTypeIds.RefreshStartEventType);
+                var customEventTypeId = new NodeId("ns=2;s=5:CustomEventType");
+
+                var filter = new EventFilter();
+
+                // Standardfelder von BaseEventType
+                filter.AddSelectClause(ObjectTypeIds.BaseEventType, new QualifiedName(BrowseNames.EventId));
+                filter.AddSelectClause(ObjectTypeIds.BaseEventType, new QualifiedName(BrowseNames.EventType));
+                filter.AddSelectClause(ObjectTypeIds.BaseEventType, new QualifiedName(BrowseNames.SourceNode));
+                filter.AddSelectClause(ObjectTypeIds.BaseEventType, new QualifiedName(BrowseNames.SourceName));
+                filter.AddSelectClause(ObjectTypeIds.BaseEventType, new QualifiedName(BrowseNames.Time));
+                filter.AddSelectClause(ObjectTypeIds.BaseEventType, new QualifiedName(BrowseNames.Message));
+                filter.AddSelectClause(ObjectTypeIds.BaseEventType, new QualifiedName(BrowseNames.Severity));
+
+                // Custom-Feld "Value" vom CustomEventType via BrowsePath
+                filter.AddSelectClause(customEventTypeId, new QualifiedName(nameof(CustomEventState<>.Value), 2));
+
+
+                var element1 = filter.WhereClause.Push(FilterOperator.OfType, Opc.Ua.ObjectTypeIds.AlarmConditionType);
+                filter.WhereClause.Push(FilterOperator.Not, Variant.From(new ExtensionObject(element1)));
 
                 var options = new MonitoredItemOptions
                 {
@@ -140,13 +161,12 @@ namespace chd.OpcUa.Client
                     AttributeId = Attributes.EventNotifier,
                     SamplingInterval = TimeSpan.Zero,
                     MonitoringMode = MonitoringMode.Reporting,
-                    QueueSize = UInt32.MaxValue,
+                    QueueSize = 1000,
                     DiscardOldest = true,
-                    Filter = selectClauses.ConstructFilter(),
+                    Filter = filter,
                 };
 
-                if (_eventsSubscription.MonitoredItems.TryAdd(node, new Opc.Ua.OptionsMonitor<MonitoredItemOptions>(options),
-                        out IMonitoredItem monitoredItem))
+                if (_eventsSubscription.MonitoredItems.TryAdd(node, new Opc.Ua.OptionsMonitor<MonitoredItemOptions>(options), out IMonitoredItem monitoredItem))
                 {
                     _filtersByHandle[monitoredItem.ClientHandle] = (EventFilter)options.Filter;
                     return true;
@@ -266,7 +286,7 @@ namespace chd.OpcUa.Client
             if (_eventsSubscription is null && _session.TryGetSubscriptionManager(out var manager))
             {
                 subscriptionNotificationHandler.EventCallback = RaiseEventsAsync;
-                _eventsSubscription = manager.Add(subscriptionNotificationHandler,subscritptionsOptionsMonitor);
+                _eventsSubscription = manager.Add(subscriptionNotificationHandler, subscritptionsOptionsMonitor);
             }
 
             if (_channelConsumer is null)
@@ -278,15 +298,19 @@ namespace chd.OpcUa.Client
                         await foreach (var notification in _eventChannel.Reader.ReadAllAsync(cancellationToken)
                                            .ConfigureAwait(false))
                         {
-                            var args = await _session.ProcessNotificationAsync(_conditionStates, _filtersByHandle, notification, cancellationToken);
+                            var args = await _session.ProcessEventNotificationAsync(_filtersByHandle, notification,
+                                cancellationToken);
                             if (args is not null
-                                && EventAlarmNotification is not null)
+                                && EventNotification is not null)
                             {
-                                await this.EventAlarmNotification.Invoke(this, args);
+                                await this.EventNotification.Invoke(this, args);
                             }
                         }
                     }
-                    catch { }
+                    catch (Exception ex)
+                    {
+                        logger?.LogError(ex, ex.Message);
+                    }
                 }, cancellationToken);
             }
         }
@@ -311,14 +335,10 @@ namespace chd.OpcUa.Client
             }
         }
 
-
-
-
         private async Task BrowseNodeAsync(NodeId? parentId, CancellationToken cancellationToken)
         {
             parentId ??= ObjectIds.ObjectsFolder;
             var nodesToBrowse = new List<BrowseDescription> {
-                    // the components of the node.
                     new BrowseDescription {
                         NodeId = parentId.Value,
                         BrowseDirection = BrowseDirection.Forward,
@@ -327,7 +347,6 @@ namespace chd.OpcUa.Client
                         NodeClassMask = (uint)(NodeClass.Object | NodeClass.Variable | NodeClass.Method),
                         ResultMask = (uint)BrowseResultMask.All,
                     },
-                    // the nodes organized by the node.
                     new BrowseDescription {
                         NodeId = parentId.Value,
                         BrowseDirection = BrowseDirection.Forward,
@@ -405,14 +424,12 @@ namespace chd.OpcUa.Client
 
             try
             {
-                using var typeSystem = ComplexTypeSystemClientExtensions.Create(_session, telemetryContext);
+                _typeSystem = ComplexTypeSystemClientExtensions.Create(_session, telemetryContext);
 
-                await typeSystem.LoadAsync(ct: cancellationToken).ConfigureAwait(false);
+                _ = await _typeSystem.LoadAsync(ct: cancellationToken).ConfigureAwait(false);
             }
             catch (Exception e)
             {
-                // the session is usable without the custom types; a sample which needs them
-                // fails later, with an error which says which type is missing
                 logger?.LogWarning(e, "Failed to load complex type system.");
             }
         }
@@ -496,6 +513,7 @@ namespace chd.OpcUa.Client
 
         public async ValueTask DisposeAsync()
         {
+            _typeSystem?.Dispose();
             subscriptionNotificationHandler.DataChangeCallback = null;
             subscriptionNotificationHandler.EventCallback = null;
             subscriptionNotificationHandler.KeepAliveCallback = null;

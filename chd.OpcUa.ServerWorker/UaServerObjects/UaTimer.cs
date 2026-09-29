@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.Text;
+using chd.OpcUa.Base.System.Attributes;
 
 namespace chd.OpcUa.ServerWorker.UaServerObjects
 {
@@ -48,7 +49,7 @@ namespace chd.OpcUa.ServerWorker.UaServerObjects
                 await Task.Delay(TimeSpan.FromSeconds(1), _cts.Token);
                 Time--;
             }
-            TimerFinished?.Invoke(this, Time);
+            TimerFinished?.Invoke(this, 17);
 
             State = ETimerState.Finished;
         }, _cts.Token);

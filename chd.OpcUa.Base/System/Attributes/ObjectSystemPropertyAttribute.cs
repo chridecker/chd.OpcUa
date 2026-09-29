@@ -2,7 +2,7 @@
 using System.Collections.Generic;
 using System.Text;
 
-namespace chd.OpcUa.Server.ObjectSystem
+namespace chd.OpcUa.Base.System.Attributes
 {
     public class ObjectSystemPropertyAttribute(string displayName = null) : ObjectSystemAttribute(displayName)
     {

@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Text;
+using chd.OpcUa.Base.System.Attributes;
 using chd.OpcUa.Server.ObjectSystem;
 
 namespace chd.OpcUa.ServerWorker.UaServerObjects

@@ -8,6 +8,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Text;
+using chd.OpcUa.Base.States;
 
 namespace chd.OpcUa.ServerWorker
 {
@@ -38,7 +39,7 @@ namespace chd.OpcUa.ServerWorker
 
 
             var customEventTypeId =
-                ModelUtils.ConstructIdForEventType<CustomEventState>(
+                ModelUtils.ConstructIdForEventType<SimpleValueCustomEventState>(
                     NamespaceIndex);
 
             MasterNodeManager.CreateExternalReference(
@@ -265,8 +266,7 @@ namespace chd.OpcUa.ServerWorker
             return root.FindChildBySymbolicName(context, parsedNodeId.ComponentPath);
         }
 
-        private async ValueTask<NodeState> ResolveEventAsync(ISystemContext context, NodeId nodeId,
-            CancellationToken cancellationToken)
+        private async ValueTask<NodeState> ResolveEventAsync(ISystemContext context, NodeId nodeId, CancellationToken cancellationToken)
         {
             var parsedNodeId = ParsedNodeId.Parse(nodeId);
 
@@ -277,9 +277,9 @@ namespace chd.OpcUa.ServerWorker
 
             NodeState root = null;
             if (parsedNodeId.RootType == ModelUtils.EventType &&
-                parsedNodeId.RootId == nameof(CustomEventState).Replace("State", "Type"))
+                parsedNodeId.RootId == nameof(SimpleValueCustomEventState).Replace("State", "Type"))
             {
-                root = ModelUtils.CreateEventType<CustomEventState>(NamespaceIndex);
+                root = SimpleValueCustomEventState.CreateEventType<SimpleValueCustomEventState>(ModelUtils.ConstructIdForEventType<SimpleValueCustomEventState>(NamespaceIndex), state => ModelUtils.ConstructIdForComponent(state, NamespaceIndex), NamespaceIndex);
             }
             else
             {

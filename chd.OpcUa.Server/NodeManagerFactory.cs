@@ -6,17 +6,20 @@ using Opc.Ua.Server;
 using System;
 using System.Collections.Generic;
 using System.Text;
+using chd.OpcUa.Server.Options;
+using Microsoft.Extensions.Options;
 
 namespace chd.OpcUa.ServerWorker
 {
-    public class NodeManagerFactory(INamespaceManager namespaceManager, IUnderlyingSystemManager<UnderlyingSystemSegment, UnderlyingSystemBlock, UnderlyingSystemMethod> underlyingSystemManager) : IAsyncNodeManagerFactory
+    public class NodeManagerFactory(IUnderlyingSystemManager<UnderlyingSystemSegment, UnderlyingSystemBlock, UnderlyingSystemMethod> underlyingSystemManager,
+        IOptions<ServerOptions> serverOptions) : IAsyncNodeManagerFactory
     {
         public ValueTask<IAsyncNodeManager> CreateAsync(IServerInternal server, ApplicationConfiguration configuration,
             CancellationToken cancellationToken = new CancellationToken())
         {
-            return new ValueTask<IAsyncNodeManager>(new NodeManager(server, configuration, underlyingSystemManager, NamespacesUris.ToArray()));
+            return new ValueTask<IAsyncNodeManager>(new NodeManager(server, configuration, underlyingSystemManager, serverOptions.Value.Namespace));
         }
 
-        public ArrayOf<string> NamespacesUris => namespaceManager.NameSpaces;
+        public ArrayOf<string> NamespacesUris => [serverOptions.Value.Namespace];
     }
 }

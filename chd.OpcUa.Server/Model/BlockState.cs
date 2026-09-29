@@ -8,6 +8,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Text;
+using chd.OpcUa.Base.States;
 
 namespace chd.OpcUa.Server.Model
 {
@@ -107,11 +108,38 @@ namespace chd.OpcUa.Server.Model
 
         private ValueTask OnEventTrigged(UnderlyingSystemEvent? e, CancellationToken cancellationToken)
         {
-            var baseEvent = new CustomEventState(this, _nodeManager.NamespaceIndex);
-            baseEvent.Initialize(_nodeManager.SystemContext, this, EventSeverity.Medium, LocalizedText.From(e.Message));
-            baseEvent.Value.Value = e.Value.ConvertToVariant();
+            var baseEvent = CreateEvent(e);
+            if (baseEvent is null) { return ValueTask.CompletedTask; }
 
             return this.ReportEventAsync(_nodeManager.SystemContext, baseEvent, cancellationToken);
+        }
+
+
+        private BaseEventState CreateEvent(UnderlyingSystemEvent e)
+            => e.Type switch
+            {
+                var x when x.IsValueType || x.Equals(typeof(string)) => CreateSimpleValueEvent(e),
+                _ => CreateBaseEvent(e)
+            };
+
+
+        private BaseEventState CreateBaseEvent(UnderlyingSystemEvent e)
+        {
+            var evt = new BaseEventState(null);
+            evt.Initialize(_nodeManager.SystemContext, this, e.Severity, LocalizedText.From(e.Message));
+            return evt;
+        }
+
+        private SimpleValueCustomEventState CreateSimpleValueEvent(UnderlyingSystemEvent e)
+        {
+            var evt = new SimpleValueCustomEventState(
+                ModelUtils.ConstructIdForEventType<SimpleValueCustomEventState>(_nodeManager.NamespaceIndex),
+                state => ModelUtils.ConstructIdForComponent(state, _nodeManager.NamespaceIndex), this,
+                _nodeManager.NamespaceIndex);
+            evt.Initialize(_nodeManager.SystemContext, this, e.Severity, LocalizedText.From(e.Message));
+
+            evt.Value.Value = e.Value.ConvertToVariant();
+            return evt;
         }
 
         private async ValueTask<AttributeSimpleReadResult> OnReadTagValueAsync(ISystemContext context, NodeState node,

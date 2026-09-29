@@ -5,7 +5,7 @@ using System.Xml.Linq;
 
 namespace chd.OpcUa.Contracts
 {
-    public class EventAlarmEventArgs : EventArgs
+    public class AlarmEventArgs : EventArgs
     {
         public ReadOnlyMemory<byte> Id { get; set; }
         public uint Handle{ get; set; }
