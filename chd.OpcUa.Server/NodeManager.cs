@@ -92,6 +92,12 @@ namespace chd.OpcUa.ServerWorker
 
         }
 
+        public override ValueTask<ServiceResult> ConditionRefreshAsync(OperationContext context, IList<IEventMonitoredItem> monitoredItems,
+            CancellationToken cancellationToken = new CancellationToken())
+        {
+            return base.ConditionRefreshAsync(context, monitoredItems, cancellationToken);
+        }
+
         protected override ValueTask<ServiceResult> SubscribeToEventsAsync(ServerSystemContext context, NodeState source, IEventMonitoredItem monitoredItem,
             bool unsubscribe, CancellationToken cancellationToken = new CancellationToken())
         {

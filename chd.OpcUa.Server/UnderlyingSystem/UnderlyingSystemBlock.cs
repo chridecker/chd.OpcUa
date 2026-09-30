@@ -191,6 +191,7 @@ namespace chd.OpcUa.Server.UnderlyingSystem
 
             return ValueTask.CompletedTask;
         }
+
         public ValueTask TriggerAlarm(string alarmsIdentifier, string message, EventSeverity severity, CancellationToken cancellationToken)
         {
             var alarm = _alarms.FirstOrDefault(x => x.Identifier == alarmsIdentifier);

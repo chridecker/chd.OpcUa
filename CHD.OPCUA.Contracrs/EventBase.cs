@@ -10,6 +10,7 @@ namespace chd.OpcUa.Contracts
         public string SourceName { get; set; }
         public DateTime Time { get; set; }
         public string Type { get; set; }
+        public string Message { get; set; }
         public ushort Severity { get; set; }
 
 

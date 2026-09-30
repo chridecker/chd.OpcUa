@@ -11,6 +11,7 @@ namespace chd.OpcUa.Worker
         {
             client.MonitoredItemNotification += Client_MonitoredItemNotification;
             client.EventNotification += Client_EventNotification;
+            client.AlarmNotification += Client_AlarmNotification; ;
             await client.StartAsync(stoppingToken);
 
 
@@ -20,6 +21,7 @@ namespace chd.OpcUa.Worker
             additional[($"ns=2;s=5:{nameof(ObjectValueCustomEventState).Replace("State", "Type")}", typeof(ObjectValueCustomEventState))] = ["Value"];
 
             await client.AttachToEventsAsync("1:CHDTimer1", additional, stoppingToken);
+            await client.AttachToAlarmsAsync("1:CHDTimer1", new Dictionary<(string, Type), List<string>>(), stoppingToken);
 
             await client.CallMethod("2:CHDTimer1#StartAsync", stoppingToken, 1);
 
@@ -42,6 +44,15 @@ namespace chd.OpcUa.Worker
                 await Task.Delay(1000, stoppingToken);
 
                 //client.RemoveMonitorItem("1:CC1001?Input2");
+            }
+        }
+
+        private async ValueTask Client_AlarmNotification(object? sender, Contracts.AlarmEventArgs e, CancellationToken cancellationToken = default)
+        {
+            logger?.LogInformation($"Alarm {e.SourceName} -> {e.Message} {e.Acknowledged} {e.Confirmed} {e.Comment} {e.Type} {e.Time}");
+            if (e.Acknowledged)
+            {
+                await client.ConfirmAsync(e.Handle, new ReadOnlyMemory<byte>(e.Id), e.Comment, cancellationToken);
             }
         }
 

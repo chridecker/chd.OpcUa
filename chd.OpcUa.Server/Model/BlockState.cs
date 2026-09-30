@@ -12,6 +12,7 @@ using System.Diagnostics;
 using System.Reflection;
 using System.Text;
 using System.Xml.Linq;
+using chd.OpcUa.Server.Extensions;
 
 namespace chd.OpcUa.Server.Model
 {
@@ -118,7 +119,7 @@ namespace chd.OpcUa.Server.Model
 
         private ValueTask OnEventTrigged(UnderlyingSystemEvent? e, CancellationToken cancellationToken)
         {
-            var baseEvent = CreateEvent(e);
+            var baseEvent = this.CreateEvent(e, _nodeManager);
             if (baseEvent is null) { return ValueTask.CompletedTask; }
             baseEvent.ReceiveTime.Value = e.Time;
             return this.ReportEventAsync(_nodeManager.SystemContext, baseEvent, cancellationToken);
@@ -130,87 +131,10 @@ namespace chd.OpcUa.Server.Model
             {
                 e.Id = Guid.NewGuid();
             }
-            var condition = CreateCondition(e);
+            var condition = this.CreateAlarm(e, _nodeManager);
             if (condition is null) { return ValueTask.CompletedTask; }
+
             condition.ReceiveTime.Value = e.Time;
-
-
-
-            return this.ReportEventAsync(_nodeManager.SystemContext, condition, cancellationToken);
-        }
-
-
-
-        private BaseEventState CreateEvent(UnderlyingSystemEvent e)
-            => e.Type switch
-            {
-                var x when !x.Equals(typeof(void)) && x.IsValueType || x.Equals(typeof(string)) => CreateSimpleValueEvent(e),
-                var x when !x.Equals(typeof(void)) && !x.IsValueType && x.IsClass => CreateObjectValueEvent(e),
-                _ => CreateBaseEvent(e)
-            };
-
-
-        private AlarmConditionState CreateCondition(UnderlyingSystemAlarm e)
-        {
-            var condition = new AlarmConditionState(this);
-            condition.Initialize(_nodeManager.SystemContext, this, e.Severity, LocalizedText.From(e.Message));
-
-
-
-            condition.Acknowledge = new AddCommentMethodState(condition);
-
-            condition.EnabledState = new TwoStateVariableState(condition);
-            condition.EnabledState.TransitionTime = PropertyState<DateTimeUtc>.With<VariantBuilder>(condition.EnabledState);
-            condition.EnabledState.EffectiveDisplayName = PropertyState<LocalizedText>.With<VariantBuilder>(condition.EnabledState);
-            condition.EnabledState.Create(_nodeManager.SystemContext, NodeId.Null, new QualifiedName(BrowseNames.EnabledState), LocalizedText.Null, false);
-
-
-            // same procedure add optional components to the ActiveState component.
-            condition.ActiveState = new TwoStateVariableState(condition);
-            condition.ActiveState.TransitionTime = PropertyState<DateTimeUtc>.With<VariantBuilder>(condition.ActiveState);
-            condition.ActiveState.EffectiveDisplayName = PropertyState<LocalizedText>.With<VariantBuilder>(condition.ActiveState);
-            condition.ActiveState.Create(_nodeManager.SystemContext, NodeId.Null, new QualifiedName(BrowseNames.ActiveState), LocalizedText.Null, false);
-
-
-            // same procedure add optional components to the ActiveState component.
-            condition.ConfirmedState = new TwoStateVariableState(condition);
-            condition.ConfirmedState.TransitionTime = PropertyState<DateTimeUtc>.With<VariantBuilder>(condition.ConfirmedState);
-            condition.ConfirmedState.EffectiveDisplayName = PropertyState<LocalizedText>.With<VariantBuilder>(condition.ConfirmedState);
-            condition.ConfirmedState.Create(_nodeManager.SystemContext, NodeId.Null, new QualifiedName(BrowseNames.ConfirmedState), LocalizedText.Null, false);
-            condition.Confirm = new AddCommentMethodState(condition);
-
-            condition.Comment = ConditionVariableState<LocalizedText>.With<VariantBuilder>(condition);
-            condition.Comment.Create(_nodeManager.SystemContext, NodeId.Null, new QualifiedName(BrowseNames.Comment), LocalizedText.Null, false);
-
-            condition.AddComment = new AddCommentMethodState(condition);
-
-            condition.SymbolicName = e.Name;
-            condition.SupportsFilteredRetain = PropertyState<bool>.With<VariantBuilder>(condition, true);
-
-            condition.Create(_nodeManager.SystemContext, NodeId.Null, new QualifiedName(e.Name, _nodeManager.NamespaceIndex), LocalizedText.From(e.Name), true);
-
-            condition.EnabledState.Id.Value = e.Enabled;
-            condition.EnabledState.Value = LocalizedText.From("Enabled");
-            condition.ActiveState.Id.Value = e.Active;
-            condition.AckedState.Id.Value = e.Acknowledged;
-            condition.ConfirmedState.Id.Value = e.Confirmed;
-
-            condition.Comment.Value = LocalizedText.From(e.Comment);
-
-            condition.EventId.Value = e.Id.Value.ToByteArray().ToByteString();
-            condition.EventType.Value = condition.TypeDefinitionId;
-            condition.ConditionName = PropertyState<string>.With<VariantBuilder>(condition);
-            condition.ConditionName.Value = condition.SymbolicName;
-            condition.Time.Value = DateTime.UtcNow;
-            condition.ReceiveTime.Value = condition.Time.Value;
-
-            condition.Retain.Value = true;
-            
-            //condition.AddReAlarmTime(_nodeManager.SystemContext).AddReAlarmRepeatCount(_nodeManager.SystemContext);
-            //condition.ReAlarmTime.Value = TimeSpan.FromSeconds(2).TotalMilliseconds;
-            //condition.ReAlarmRepeatCount.Value = 0;
-
-            // set up method handlers.
             condition.OnEnableDisable = OnEnableDisableAlarm;
             condition.OnAcknowledge = OnAcknowledge;
             condition.OnAddComment = OnAddComment;
@@ -218,50 +142,14 @@ namespace chd.OpcUa.Server.Model
 
             this._alarmStates[condition.EventId.Value.ToHexString()] = condition;
 
-            this.AddChild(condition);
+            var children = new List<BaseInstanceState>();
+            this.GetChildren(_nodeManager.SystemContext, children);
+            if (!children.Any(a => a is ConditionState cs && cs.EventId.Value.Equals(condition.EventId.Value)))
+            {
+                this.AddChild(condition);
+            }
 
-            return condition;
-        }
-        private BaseEventState CreateBaseEvent(UnderlyingSystemEvent e)
-        {
-            var evt = new BaseEventState(null);
-            evt.Initialize(_nodeManager.SystemContext, this, e.Severity, LocalizedText.From(e.Message));
-            return evt;
-        }
-
-        private SimpleValueCustomEventState CreateSimpleValueEvent(UnderlyingSystemEvent e)
-        {
-            var evt = new SimpleValueCustomEventState(
-                ModelUtils.ConstructIdForEventType<SimpleValueCustomEventState>(_nodeManager.NamespaceIndex),
-                state => ModelUtils.ConstructIdForComponent(state, _nodeManager.NamespaceIndex), this,
-                _nodeManager.NamespaceIndex);
-            evt.Initialize(_nodeManager.SystemContext, this, e.Severity, LocalizedText.From(e.Message));
-
-            evt.Value.Value = e.Value?.ConvertToVariant();
-            return evt;
-        }
-        private ComplexValueCustomEventState CreateComplexValueEvent(UnderlyingSystemEvent e)
-        {
-            var evt = new ComplexValueCustomEventState(
-                ModelUtils.ConstructIdForEventType<ComplexValueCustomEventState>(_nodeManager.NamespaceIndex),
-                state => ModelUtils.ConstructIdForComponent(state, _nodeManager.NamespaceIndex), this,
-                _nodeManager.NamespaceIndex);
-            evt.Initialize(_nodeManager.SystemContext, this, e.Severity, LocalizedText.From(e.Message));
-
-            evt.Value.Value = e.Value;
-            return evt;
-        }
-        private ObjectValueCustomEventState CreateObjectValueEvent(UnderlyingSystemEvent e)
-        {
-            var evt = new ObjectValueCustomEventState(
-                ModelUtils.ConstructIdForEventType<ObjectValueCustomEventState>(_nodeManager.NamespaceIndex),
-                state => ModelUtils.ConstructIdForComponent(state, _nodeManager.NamespaceIndex), this,
-                _nodeManager.NamespaceIndex);
-            evt.Initialize(_nodeManager.SystemContext, this, e.Severity, LocalizedText.From(e.Message));
-
-            var props = e.Type.GetProperties(BindingFlags.Instance | BindingFlags.Public);
-            evt.Value.Value = props.Select(s => s.GetValue(e.Value)).ToArray();
-            return evt;
+            return this.ReportEventAsync(_nodeManager.SystemContext, condition, cancellationToken);
         }
 
         private ServiceResult OnEnableDisableAlarm(

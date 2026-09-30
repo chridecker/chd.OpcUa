@@ -98,10 +98,15 @@ namespace chd.OpcUa.Client.Extensions
             {
                 (NodeState)null
             };
-            if (knownType.GetConstructors().Any(a => a.GetParameters().Length > 1))
+            var constructors = knownType.GetConstructors();
+            if (constructors.Any(a => a.GetParameters().Length == 2)
+                && constructors.Where(x => x.GetParameters().Length == 2)
+                    .Any(a => a.GetParameters()[1].ParameterType.Equals(typeof(ushort))))
             {
-                constructorParam.Add(eventTypeId.NamespaceIndex);
+                constructorParam.Add(knownTypeId.NamespaceIndex);
             }
+
+
             var e = (BaseEventState)Activator.CreateInstance(knownType, constructorParam.ToArray());
 
             // initialize the event with the values in the notification.
@@ -459,7 +464,7 @@ namespace chd.OpcUa.Client.Extensions
         }
 
 
-        public static async Task<AlarmEventArgs?> ProcessNotificationAsync(this ISession session, Dictionary<uint, ConditionState> conditionStates, Dictionary<uint, EventFilter> filterByHandle,
+        public static async Task<AlarmEventArgs?> ProcessAlarmNotificationAsync(this ISession session, Dictionary<uint, ConditionState> conditionStates, Dictionary<uint, EventFilter> filterByHandle,
             Dictionary<NodeId, Type> registeredTypes, EventNotification notification, CancellationToken ct)
         {
             uint clientHandle = notification.MonitoredItem?.ClientHandle ?? 0;
@@ -477,60 +482,36 @@ namespace chd.OpcUa.Client.Extensions
                 return null;
             }
 
-            // a refresh starts the list over and ends without anything to show
-            if (eventTypeId == ObjectTypeIds.RefreshStartEventType)
-            {
-
-                if (conditionStates.ContainsKey(clientHandle))
-                {
-                    conditionStates.Remove(clientHandle);
-                }
-                return null;
-            }
-
-            if (eventTypeId == ObjectTypeIds.RefreshEndEventType)
-            {
-                return null;
-            }
 
             // construct the condition object.
-            var condition = await session.ConstructEventAsync(
+            var baseEvent = await session.ConstructEventAsync(
                 filter,
                 fields,
                 CreateKnownTypes(), registeredTypes,
-                ct).ConfigureAwait(false) as ConditionState;
+                ct).ConfigureAwait(false);
 
-            if (condition is null)
+            if (baseEvent is not AlarmConditionState condition)
             {
                 return null;
             }
 
             conditionStates[clientHandle] = condition;
 
-            INode type = await session.NodeCache.FindAsync(condition.TypeDefinitionId, ct).ConfigureAwait(false);
-
+            var type = await session.NodeCache.FindAsync(condition.TypeDefinitionId, ct).ConfigureAwait(false);
 
             return new AlarmEventArgs()
             {
-                Id = condition.EventId.Value.Memory,
+                Id = condition.EventId.Value.Memory.Span.ToArray(),
                 Handle = clientHandle,
                 Type = type?.ToString(),
                 SourceName = condition.SourceName?.Value,
-                ConditionName = condition.ConditionName?.Value,
                 Time = condition.Time.Value.ToDateTime(),
                 Severity = condition.Severity.Value,
-                StateText = condition.EnabledState?.EffectiveDisplayName?.Value.Text,
                 Message = condition.Message?.Value.Text,
                 Comment = condition.Comment?.Value.Text,
-                Retain = condition.Retain.Value,
-                IsDialog = condition is DialogConditionState,
-                DialogText = condition is DialogConditionState dialog ? dialog.Prompt.Value.Text : string.Empty,
-                IsAlarm = condition is AlarmConditionState,
-                CanSilence = condition is AlarmConditionState alarm && !(alarm.SilenceState?.Id?.Value ?? false),
-                DialogResponses = condition is DialogConditionState dialog1 ? dialog1.ResponseOptionSet.Value
-                    .ToArray()
-                    .Select(option => Utils.Format("{0}", option))
-                    .ToArray() : new[] { string.Empty }
+                Retain = condition.Retain?.Value ?? false,
+                Acknowledged = condition.AckedState.Value.Equals(condition.AckedState.TrueState),
+                Confirmed = condition.ConfirmedState.Value.Equals(condition.ConfirmedState.TrueState),
             };
         }
 

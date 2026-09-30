@@ -40,7 +40,8 @@ namespace chd.OpcUa.Client
         private List<NodeDto> _nodes = [];
         private List<NodeDto> _methods = [];
 
-        private Dictionary<uint, EventFilter> _filtersByHandle = [];
+        private Dictionary<uint, EventFilter> _eventFiltersByHandle = [];
+        private Dictionary<uint, EventFilter> _alarmFiltersByHandle = [];
         private Dictionary<NodeId, Type> _eventType = [];
         private Dictionary<uint, ConditionState> _conditionStates = [];
 
@@ -48,10 +49,12 @@ namespace chd.OpcUa.Client
 
         private ISubscription _monitoredItemSubscription;
         private ISubscription _eventsSubscription;
+        private ISubscription _alarmsSubscription;
 
         private Channel<EventNotification> _eventChannel =
             Channel.CreateUnbounded<EventNotification>(new UnboundedChannelOptions
             { SingleReader = true, SingleWriter = false });
+
 
         private Task _channelConsumer;
         private ComplexTypeSystem _typeSystem;
@@ -172,7 +175,85 @@ namespace chd.OpcUa.Client
 
                 if (_eventsSubscription.MonitoredItems.TryAdd(node, new Opc.Ua.OptionsMonitor<MonitoredItemOptions>(options), out IMonitoredItem monitoredItem))
                 {
-                    _filtersByHandle[monitoredItem.ClientHandle] = (EventFilter)options.Filter;
+                    _eventFiltersByHandle[monitoredItem.ClientHandle] = (EventFilter)options.Filter;
+                    return true;
+                }
+                return false;
+            }, NodeClass.Object);
+
+        public Task<bool> AttachToAlarmsAsync(string node, Dictionary<(string, Type), List<string>> customSelects, CancellationToken cancellationToken = default)
+            => ExecuteForNode<bool>(node, async n =>
+            {
+                CreateAlarmsSubscription(cancellationToken);
+                var filter = new EventFilter();
+
+                filter.AddSelectClause(ObjectTypeIds.AlarmConditionType, new QualifiedName(BrowseNames.EventId));
+                filter.AddSelectClause(ObjectTypeIds.AlarmConditionType, new QualifiedName(BrowseNames.EventType));
+                filter.AddSelectClause(ObjectTypeIds.AlarmConditionType, new QualifiedName(BrowseNames.SourceNode));
+                filter.AddSelectClause(ObjectTypeIds.AlarmConditionType, new QualifiedName(BrowseNames.SourceName));
+                filter.AddSelectClause(ObjectTypeIds.AlarmConditionType, new QualifiedName(BrowseNames.Time));
+                filter.AddSelectClause(ObjectTypeIds.AlarmConditionType, new QualifiedName(BrowseNames.InputNode));
+                filter.AddSelectClause(ObjectTypeIds.AlarmConditionType, new QualifiedName(BrowseNames.Message));
+                filter.AddSelectClause(ObjectTypeIds.AlarmConditionType, new QualifiedName(BrowseNames.Severity));
+                filter.AddSelectClause(ObjectTypeIds.AlarmConditionType, new QualifiedName(BrowseNames.Comment));
+                filter.AddSelectClause(ObjectTypeIds.AlarmConditionType, new QualifiedName(BrowseNames.ActiveState));
+                filter.AddSelectClause(ObjectTypeIds.AlarmConditionType, new QualifiedName(BrowseNames.EnabledState));
+                filter.AddSelectClause(ObjectTypeIds.AlarmConditionType, new QualifiedName(BrowseNames.Retain));
+                filter.AddSelectClause(ObjectTypeIds.AlarmConditionType, new QualifiedName(BrowseNames.ConfirmedState));
+                filter.AddSelectClause(ObjectTypeIds.AlarmConditionType, new QualifiedName(BrowseNames.AckedState));
+                filter.AddSelectClause(ObjectTypeIds.AlarmConditionType, new QualifiedName(BrowseNames.AckedState),Attr);
+                //filter.A
+
+                new SimpleAttributeOperand
+                {
+                    TypeDefinitionId = ObjectTypeIds.AcknowledgeableConditionType,
+                    BrowsePath = new QualifiedNameCollection
+                    {
+                        new QualifiedName(BrowseNames.AckedState),
+                        new QualifiedName(BrowseNames.Id)
+                    },
+                    AttributeId = Attributes.Value
+                };
+
+
+                foreach (var customSelect in customSelects)
+                {
+                    var node = new NodeId(customSelect.Key.Item1);
+                    foreach (var field in customSelect.Value)
+                    {
+                        filter.AddSelectClause(node, new QualifiedName(field, node.NamespaceIndex));
+                    }
+
+                    _eventType[node] = customSelect.Key.Item2;
+                }
+
+                filter.WhereClause.Push(FilterOperator.OfType, Opc.Ua.ObjectTypeIds.AlarmConditionType);
+
+                var options = new MonitoredItemOptions
+                {
+                    StartNodeId = n,
+                    AttributeId = Attributes.EventNotifier,
+                    SamplingInterval = TimeSpan.Zero,
+                    MonitoringMode = MonitoringMode.Reporting,
+                    QueueSize = 1000,
+                    DiscardOldest = true,
+                    Filter = filter,
+                };
+
+                if (_alarmsSubscription.MonitoredItems.TryAdd(node, new Opc.Ua.OptionsMonitor<MonitoredItemOptions>(options), out IMonitoredItem monitoredItem))
+                {
+                    _alarmFiltersByHandle[monitoredItem.ClientHandle] = (EventFilter)options.Filter;
+
+                    var counter = 2000;
+                    while (counter > 0 && _alarmsSubscription.MonitoredItems.Items.Any(a =>
+                               a is IMonitoredItemApplyState applyState && applyState.HasPendingChanges))
+                    {
+                        await Task.Delay(50, cancellationToken);
+                        counter--;
+                    }
+
+
+                    await monitoredItem.ConditionRefreshAsync(cancellationToken);
                     return true;
                 }
                 return false;
@@ -295,27 +376,20 @@ namespace chd.OpcUa.Client
 
             if (_channelConsumer is null)
             {
-                _channelConsumer = Task.Run(async () =>
-                {
-                    try
-                    {
-                        await foreach (var notification in _eventChannel.Reader.ReadAllAsync(cancellationToken)
-                                           .ConfigureAwait(false))
-                        {
-                            var args = await _session.ProcessEventNotificationAsync(_filtersByHandle, _eventType, notification,
-                                cancellationToken);
-                            if (args is not null
-                                && EventNotification is not null)
-                            {
-                                await this.EventNotification.Invoke(this, args);
-                            }
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        logger?.LogError(ex, ex.Message);
-                    }
-                }, cancellationToken);
+                _channelConsumer = Consumer(cancellationToken);
+            }
+        }
+        private void CreateAlarmsSubscription(CancellationToken cancellationToken)
+        {
+            if (_alarmsSubscription is null && _session.TryGetSubscriptionManager(out var manager))
+            {
+                subscriptionNotificationHandler.EventCallback = RaiseEventsAsync;
+                _alarmsSubscription = manager.Add(subscriptionNotificationHandler, subscritptionsOptionsMonitor);
+            }
+
+            if (_channelConsumer is null)
+            {
+                _channelConsumer = Consumer(cancellationToken);
             }
         }
 
@@ -338,6 +412,47 @@ namespace chd.OpcUa.Client
                 await _eventChannel.Writer.WriteAsync(eventAlarm);
             }
         }
+
+        private Task Consumer(CancellationToken cancellationToken
+        ) => Task.Run(async () =>
+        {
+            try
+            {
+                await foreach (var notification in _eventChannel.Reader.ReadAllAsync(cancellationToken).ConfigureAwait(false))
+                {
+                    if (_eventFiltersByHandle.ContainsKey(notification.MonitoredItem.ClientHandle))
+                    {
+                        var args = await _session.ProcessEventNotificationAsync(_eventFiltersByHandle,
+                            _eventType, notification,
+                            cancellationToken);
+                        if (args is not null
+                            && EventNotification is not null)
+                        {
+                            await this.EventNotification.Invoke(this, args);
+                        }
+                    }
+                    else if (_alarmFiltersByHandle.ContainsKey(notification.MonitoredItem.ClientHandle))
+                    {
+
+                        var args2 = await _session.ProcessAlarmNotificationAsync(_conditionStates, _alarmFiltersByHandle,
+                                _eventType, notification,
+                                cancellationToken);
+
+                        if (args2 is not null
+                            && AlarmNotification is not null)
+                        {
+                            await this.AlarmNotification.Invoke(this, args2);
+                        }
+
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                logger?.LogError(ex, ex.Message);
+            }
+        }, cancellationToken);
+
 
         private async Task BrowseNodeAsync(NodeId? parentId, CancellationToken cancellationToken)
         {

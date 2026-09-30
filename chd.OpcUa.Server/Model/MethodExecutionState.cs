@@ -21,11 +21,12 @@ namespace chd.OpcUa.Server.Model
             NodeId = nodeId;
             BrowseName = new QualifiedName(method.Name, _nodeManager.NamespaceIndex);
             SymbolicName = method.Name;
-            DisplayName = new LocalizedText(method.Name);
+            DisplayName = LocalizedText.From(method.Name);
             Description = LocalizedText.Null;
             ReferenceTypeId = ReferenceTypeIds.HasComponent;
             UserExecutable = true;
             Executable = _method.CanExecute;
+            
 
             if (_method.InputArguments.Any())
             {
