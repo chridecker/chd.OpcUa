@@ -50,6 +50,11 @@ namespace chd.OpcUa.Worker
         private async ValueTask Client_AlarmNotification(object? sender, Contracts.AlarmEventArgs e, CancellationToken cancellationToken = default)
         {
             logger?.LogInformation($"Alarm {e.SourceName} -> {e.Message} {e.Acknowledged} {e.Confirmed} {e.Comment} {e.Type} {e.Time}");
+            await client.AddCommentAsync(e.Handle, new ReadOnlyMemory<byte>(e.Id), "Test from Console", cancellationToken);
+            if (!e.Acknowledged && !string.IsNullOrWhiteSpace(e.Comment))
+            {
+                await client.AcknowledgeAsync(e.Handle, new ReadOnlyMemory<byte>(e.Id), e.Comment, cancellationToken);
+            }
             if (e.Acknowledged)
             {
                 await client.ConfirmAsync(e.Handle, new ReadOnlyMemory<byte>(e.Id), e.Comment, cancellationToken);

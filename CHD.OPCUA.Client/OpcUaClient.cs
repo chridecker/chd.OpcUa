@@ -187,6 +187,7 @@ namespace chd.OpcUa.Client
                 CreateAlarmsSubscription(cancellationToken);
                 var filter = new EventFilter();
 
+                filter.AddSelectClause(ObjectTypeIds.ConditionType, "",Attributes.NodeId);
                 filter.AddSelectClause(ObjectTypeIds.AlarmConditionType, new QualifiedName(BrowseNames.EventId));
                 filter.AddSelectClause(ObjectTypeIds.AlarmConditionType, new QualifiedName(BrowseNames.EventType));
                 filter.AddSelectClause(ObjectTypeIds.AlarmConditionType, new QualifiedName(BrowseNames.SourceNode));
@@ -201,20 +202,10 @@ namespace chd.OpcUa.Client
                 filter.AddSelectClause(ObjectTypeIds.AlarmConditionType, new QualifiedName(BrowseNames.Retain));
                 filter.AddSelectClause(ObjectTypeIds.AlarmConditionType, new QualifiedName(BrowseNames.ConfirmedState));
                 filter.AddSelectClause(ObjectTypeIds.AlarmConditionType, new QualifiedName(BrowseNames.AckedState));
-                filter.AddSelectClause(ObjectTypeIds.AlarmConditionType, new QualifiedName(BrowseNames.AckedState),Attr);
-                //filter.A
 
-                new SimpleAttributeOperand
-                {
-                    TypeDefinitionId = ObjectTypeIds.AcknowledgeableConditionType,
-                    BrowsePath = new QualifiedNameCollection
-                    {
-                        new QualifiedName(BrowseNames.AckedState),
-                        new QualifiedName(BrowseNames.Id)
-                    },
-                    AttributeId = Attributes.Value
-                };
 
+                filter.AddSelectClause(ObjectTypeIds.AlarmConditionType, $"{BrowseNames.AckedState}/{BrowseNames.Id}", Attributes.Value);
+                filter.AddSelectClause(ObjectTypeIds.AlarmConditionType, $"{BrowseNames.ConfirmedState}/{BrowseNames.Id}", Attributes.Value);
 
                 foreach (var customSelect in customSelects)
                 {

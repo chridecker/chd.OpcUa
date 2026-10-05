@@ -510,8 +510,8 @@ namespace chd.OpcUa.Client.Extensions
                 Message = condition.Message?.Value.Text,
                 Comment = condition.Comment?.Value.Text,
                 Retain = condition.Retain?.Value ?? false,
-                Acknowledged = condition.AckedState.Value.Equals(condition.AckedState.TrueState),
-                Confirmed = condition.ConfirmedState.Value.Equals(condition.ConfirmedState.TrueState),
+                Acknowledged = condition.AckedState.Id?.Value ?? false,
+                Confirmed = condition.ConfirmedState.Id?.Value ?? false
             };
         }
 
