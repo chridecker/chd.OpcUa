@@ -72,6 +72,11 @@ namespace chd.OpcUa.ServerWorker
 
                 var segmentId = ModelUtils.ConstructIdForSegment(segment.Identifier, NamespaceIndex);
                 var node = new NodeStateReference(ReferenceTypeIds.Organizes, false, segmentId);
+                if (segment.Permissions.Any())
+                {
+                    node.Target.RolePermissions = ModelUtils.GetUserRolePermissions(segment, Server.NamespaceUris);
+                    node.Target.OnReadUserRolePermissions = OnReadUserRolePermissions;
+                }
                 references.Add(node);
             }
             var builder = CreateFluentBuilder(NamespaceIndex);
@@ -90,12 +95,6 @@ namespace chd.OpcUa.ServerWorker
             await SealConfigurationAsync(builder, cancellationToken).ConfigureAwait(false);
 
 
-        }
-
-        public override ValueTask<ServiceResult> ConditionRefreshAsync(OperationContext context, IList<IEventMonitoredItem> monitoredItems,
-            CancellationToken cancellationToken = new CancellationToken())
-        {
-            return base.ConditionRefreshAsync(context, monitoredItems, cancellationToken);
         }
 
         protected override ValueTask<ServiceResult> SubscribeToEventsAsync(ServerSystemContext context, NodeState source, IEventMonitoredItem monitoredItem,
@@ -117,6 +116,27 @@ namespace chd.OpcUa.ServerWorker
                 }
             }
             return base.SubscribeToEventsAsync(context, source, monitoredItem, unsubscribe, cancellationToken);
+        }
+
+        private static ServiceResult OnReadUserRolePermissions(ISystemContext context, NodeState node, ref ArrayOf<RolePermissionType> value)
+        {
+            var identity = (context as ISessionSystemContext)?.UserIdentity;
+
+            var grantedRoleIds = identity?.GrantedRoleIds ?? default;
+
+            var granted = new List<RolePermissionType>();
+
+            foreach (RolePermissionType permission in node.RolePermissions.ToArray())
+            {
+                if (grantedRoleIds.Contains(permission.RoleId))
+                {
+                    granted.Add(permission);
+                }
+            }
+
+            value = granted.ToArrayOf();
+
+            return ServiceResult.Good;
         }
 
         private static bool IsSegmentOrBlockId(NodeId nodeId) => nodeId.IdType is IdType.String && ParsedNodeId.Parse(nodeId).RootType <= ModelUtils.Block;
@@ -208,7 +228,7 @@ namespace chd.OpcUa.ServerWorker
             {
                 return root;
             }
-            var child =  root.FindChildBySymbolicName(context, parsedNodeId.ComponentPath);
+            var child = root.FindChildBySymbolicName(context, parsedNodeId.ComponentPath);
             return child;
         }
 

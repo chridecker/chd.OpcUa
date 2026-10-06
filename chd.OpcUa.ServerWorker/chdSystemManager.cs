@@ -61,8 +61,8 @@ namespace chd.OpcUa.ServerWorker
 
         protected override async ValueTask<UnderlyingSystemBlock> CreateBlockAsync(string blockName, CancellationToken cancellationToken)
         {
-            var block = new UnderlyingSystemBlock(blockName, "", GetBockType(blockName));
-            HandleBlock(block);
+            var block = new UnderlyingSystemBlock(blockName, "");
+            HandleBlock(block, GetBockType(blockName));
             return block;
         }
 
@@ -79,9 +79,9 @@ namespace chd.OpcUa.ServerWorker
         };
 
 
-        private void HandleBlock(UnderlyingSystemBlock block)
+        private void HandleBlock(UnderlyingSystemBlock block, string blockType)
         {
-            switch (block.BlockType)
+            switch (blockType)
             {
                 case "FlowSensor":
                     {
@@ -108,8 +108,14 @@ namespace chd.OpcUa.ServerWorker
 
                 case "CustomController":
                     {
-                        block.CreateTag<bool>("Input1", "", true);
-                        block.CreateTag<int>("Input2", "", true);
+                        block.CreateTag<bool>("Input1", "", true, userRolePermissions: new Dictionary<Role, PermissionType>
+                        {
+                            { Role.AuthenticatedUser, PermissionType.Browse | PermissionType.Read | PermissionType.Write }
+                        });
+                        block.CreateTag<int>("Input2", "", true, userRolePermissions: new Dictionary<Role, PermissionType>
+                        {
+                            { Role.AuthenticatedUser, PermissionType.Browse | PermissionType.Read }
+                        });
                         block.CreateTag<decimal>("Input3", "", true);
                         block.CreateTag<string>("Input4", "", true);
                         //block.CreateTag<ESystemState>("Status", "", false, Enum.GetNames<ESystemState>());
@@ -125,6 +131,9 @@ namespace chd.OpcUa.ServerWorker
                             method.CreateOutputArgument("Initial State", typeof(uint));
                             method.CreateOutputArgument("Final State", typeof(uint));
                         });
+                        block.Permissions.Add(Role.Anonymous, PermissionType.Browse | PermissionType.Read);
+                        block.Permissions.Add(Role.AuthenticatedUser, PermissionType.Browse | PermissionType.Read | PermissionType.Write);
+
                         //block.AddMethod(nameof(Sum), HandleSystemMethod);
                         break;
                     }

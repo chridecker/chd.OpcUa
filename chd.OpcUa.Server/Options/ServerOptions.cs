@@ -11,5 +11,7 @@ namespace chd.OpcUa.Server.Options
         public string ApplicationUri { get; set; }
         public string[] Endpoints { get; set; }
         public string Namespace { get; set; }
+        public bool AutoAcceptUntrustedCertificates { get; set; }
+        public bool IncludeUnsecurePolicyNone { get; set; }
     }
 }

@@ -7,6 +7,7 @@ using System.Reflection;
 using System.Text;
 using chd.OpcUa.Base.Extensions;
 using chd.OpcUa.Contracts;
+using Opc.Ua.Server;
 
 namespace chd.OpcUa.Server.UnderlyingSystem
 {
@@ -21,13 +22,11 @@ namespace chd.OpcUa.Server.UnderlyingSystem
         private Func<UnderlyingSystemEvent, CancellationToken, ValueTask> OnEventTriggered;
         private Func<UnderlyingSystemAlarm, CancellationToken, ValueTask> OnAlarmTriggered;
 
-        public string BlockType { get; set; }
         public DateTime Timestamp { get; set; }
 
 
-        public UnderlyingSystemBlock(string name, string description, string blockType) : base(name)
+        public UnderlyingSystemBlock(string name, string description) : base(name)
         {
-            BlockType = blockType;
             Description = description;
         }
 
@@ -54,6 +53,7 @@ namespace chd.OpcUa.Server.UnderlyingSystem
         public async ValueTask CreateTag(Type type, string tagName, string description, bool writeable, string[] labels = null,
             Func<CancellationToken, ValueTask<Variant>> readValue = null,
             Func<Variant, CancellationToken, ValueTask> writeValue = null,
+            Dictionary<Role, PermissionType> userRolePermissions = null,
             CancellationToken cancellationToken = default)
         {
             var tag = new UnderlyingSystemTag(tagName, writeable)
@@ -63,7 +63,8 @@ namespace chd.OpcUa.Server.UnderlyingSystem
                 Type = type,
                 Labels = labels,
                 ReadFunc = readValue,
-                WriteFunc = writeValue
+                WriteFunc = writeValue,
+                Permissions = userRolePermissions ?? []
             };
             if (readValue is null)
             {
@@ -79,8 +80,8 @@ namespace chd.OpcUa.Server.UnderlyingSystem
             Timestamp = DateTime.UtcNow;
         }
 
-        public void CreateTag<T>(string tagName, string description, bool writeable, string[] labels = null)
-            => CreateTag(typeof(T), tagName, description, writeable, labels);
+        public void CreateTag<T>(string tagName, string description, bool writeable, string[] labels = null, Dictionary<Role, PermissionType> userRolePermissions = null)
+            => CreateTag(typeof(T), tagName, description, writeable, labels, userRolePermissions: userRolePermissions);
 
 
         public IList<UnderlyingSystemTag> GetTags() => _tags.Select(s => s.CreateSnapshot()).ToList();

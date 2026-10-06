@@ -40,6 +40,9 @@ namespace chd.OpcUa.Server.Model
             this.UserWriteMask = 0;
             this.EventNotifier = block.GetEvents().Any() || block.GetAlarms().Any() ? EventNotifiers.SubscribeToEvents : EventNotifiers.None;
 
+            this.RolePermissions = ModelUtils.GetUserRolePermissions(block, nodeManager.Server.NamespaceUris);
+            this.UserRolePermissions = ModelUtils.GetUserRolePermissions(block, nodeManager.Server.NamespaceUris);
+
             foreach (var tag in block.GetTags())
             {
                 var variable = CreateVariable(nodeManager.SystemContext, tag);
@@ -327,6 +330,10 @@ namespace chd.OpcUa.Server.Model
 
             // update the variable values.
             UpdateVariable(tag, variable);
+
+            variable.RolePermissions = ModelUtils.GetUserRolePermissions(tag, _nodeManager.Server.NamespaceUris);
+            variable.UserRolePermissions = ModelUtils.GetUserRolePermissions(tag, _nodeManager.Server.NamespaceUris);
+
             return variable;
         }
         private void UpdateVariable(UnderlyingSystemTag tag, BaseVariableState variable)

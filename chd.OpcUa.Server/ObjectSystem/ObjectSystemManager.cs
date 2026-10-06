@@ -43,7 +43,7 @@ namespace chd.OpcUa.Server.ObjectSystem
             if (entry.Value.Any())
             {
                 var instance = entry.Value.FirstOrDefault(x => x.Name == blockName);
-                block = new UnderlyingSystemBlock(blockName, instance.Description, entry.Key);
+                block = new UnderlyingSystemBlock(blockName, instance.Description);
                 await HandleSystemObject(block, instance);
             }
             return block;

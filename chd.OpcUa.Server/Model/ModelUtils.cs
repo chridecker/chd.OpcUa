@@ -3,6 +3,7 @@ using Opc.Ua.Server;
 using System;
 using System.Collections.Generic;
 using System.Text;
+using chd.OpcUa.Server.UnderlyingSystem;
 
 namespace chd.OpcUa.Server.Model
 {
@@ -21,6 +22,16 @@ namespace chd.OpcUa.Server.Model
         public const int EventType = 5;
 
         public const int AlarmType = 6;
+
+        public static ArrayOf<RolePermissionType> GetUserRolePermissions(UnderlyingSystemBase usBase, NamespaceTable namespaceUris)
+        {
+            return usBase.Permissions.Select(entry => new RolePermissionType
+                {
+                    RoleId = ExpandedNodeId.ToNodeId(entry.Key.RoleId, namespaceUris),
+                    Permissions = (uint)(entry.Value | PermissionType.ReadRolePermissions),
+                })
+                .ToArrayOf();
+        }
 
         public static NodeId ConstructIdForSegment(string identifier, ushort namespaceIndex)
         {

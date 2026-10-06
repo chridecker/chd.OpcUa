@@ -12,14 +12,14 @@ using Opc.Ua.Server.Hosting;
 using System;
 using System.Collections.Generic;
 using System.Text;
-using chd.OpcUa.Server.Authentication;
 
 namespace chd.OpcUa.Server.Extensions
 {
     public static class DIExtensions
     {
         public static IServiceCollection AddOpcUaServer<TSystemManager>(this IServiceCollection services,
-            Action<ServerOptions> serverConfig, Action<RoleConfigurationOptions> roles = null)
+            Action<ServerOptions> serverConfig, Action<RoleConfigurationOptions> roles = null,
+            Func<UserNameIdentityTokenHandler, CancellationToken,ValueTask<IUserIdentity>> authenticator = null)
             where TSystemManager : UnderlyingSystemManager
         {
             if (serverConfig is not null)
@@ -53,39 +53,31 @@ namespace chd.OpcUa.Server.Extensions
                      {
                          config.EndpointUrls.Add("opc.tcp://localhost:4840/CHD/UaServer");
                      }
-                     config.AutoAcceptUntrustedCertificates = true;
-                     config.IncludeUnsecurePolicyNone = true;
+                     config.AutoAcceptUntrustedCertificates = localConfig?.AutoAcceptUntrustedCertificates ?? true;
+                     config.IncludeUnsecurePolicyNone = localConfig?.IncludeUnsecurePolicyNone ?? true;
+
+                     config.UserTokenPolicies.Add(new OpcUaUserTokenPolicy()
+                     {
+                         TokenType = UserTokenType.Anonymous
+                     });
+
+                     config.UserTokenPolicies.Add(new OpcUaUserTokenPolicy()
+                     {
+                         TokenType = UserTokenType.UserName
+                     });
                  })
                  .AddNodeManager<NodeManagerFactory>()
                  .ConfigureRoles(roles)
-                 .AddIdentityAuthenticator((sp, t) => new UserNamePasswordAuthenticator((handler, ct) =>
-                 {
-                     var password = handler.DecryptedPassword != null
-                         ? Encoding.UTF8.GetString(handler.DecryptedPassword)
-                         : null;
-
-                     var auth = sp.GetService<AuthenticationHandler>();
-
-                     if (auth.IsValid(handler.UserName, password))
-                     {
-                         return new ValueTask<IUserIdentity>(new UserIdentity(handler));
-                     }
-                     throw ServiceResultException.Create(
-                         StatusCodes.BadUserAccessDenied,
-                         "'{0}' is not one of the sample accounts, or the password is wrong.",
-                         handler.UserName);
-                 }));
+                 .AddIdentityAuthenticator((_, _) => new UserNamePasswordAuthenticator(authenticator));
 
             services.TryAddSingleton(TimeProvider.System);
             services.AddTransient<ITelemetryContext>(sp =>
                 DefaultTelemetry.Create(c => c.SetMinimumLevel(LogLevel.Trace)));
             services.TryAddSingleton<UaServer>();
-            services.TryAddSingleton<UaServerFactory>(); 
+            services.TryAddSingleton<UaServerFactory>();
             services.TryAddSingleton<NodeManagerFactory>();
             services.Replace(ServiceDescriptor.Singleton<IAsyncNodeManagerFactory>(
                 provider => provider.GetService<NodeManagerFactory>()));
-
-            services.TryAddSingleton<AuthenticationHandler>();
 
             // the forms of the server samples show the running server and take the
             // shared StandardServer, so they do not have to know the server class.
